@@ -1,0 +1,30 @@
+/// Coverage type within a policy
+table dim_coverage
+
+	column coverage_key
+		dataType: int64
+		sourceColumn: COVERAGE_KEY
+		summarizeBy: none
+
+	column coverage_code
+		dataType: string
+		sourceColumn: COVERAGE_CODE
+		summarizeBy: none
+
+	column coverage_name
+		dataType: string
+		sourceColumn: COVERAGE_NAME
+		summarizeBy: none
+
+	column peril_category
+		dataType: string
+		sourceColumn: PERIL_CATEGORY
+		summarizeBy: none
+
+	partition 'dim_coverage-DirectLake' = entity
+		mode: directLake
+		source
+			expressionSource: DatabaseQuery
+			schemaName: Actuarial
+			entityName: dim_coverage
+

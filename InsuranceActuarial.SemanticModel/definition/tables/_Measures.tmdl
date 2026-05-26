@@ -1,0 +1,25 @@
+/// Holds view-level derived measures.
+table _Measures
+
+	/// Incurred losses ÷ earned premium
+	measure 'loss_ratio' = DIVIDE([total_incurred_loss], [total_earned_premium])
+		annotation Synonyms = "LR"
+
+	/// Commissions ÷ written premium
+	measure 'expense_ratio' = DIVIDE([total_commission], [total_written_premium])
+
+	/// Loss ratio + expense ratio (a key underwriting profitability measure)
+	measure 'combined_ratio' = DIVIDE(([total_incurred_loss] + [total_commission]), [total_earned_premium])
+		annotation Synonyms = "CR"
+
+	/// Claims per unit of exposure
+	measure 'claim_frequency' = DIVIDE([claim_count], [total_exposure])
+
+	column '_' = BLANK()
+		dataType: string
+		isHidden
+
+	partition '__Measures' = calculated
+		mode: import
+		source = { BLANK() }
+

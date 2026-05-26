@@ -1,0 +1,88 @@
+/// Reported claims and their financials
+table fact_claim
+
+	column claim_key
+		dataType: int64
+		sourceColumn: CLAIM_KEY
+		summarizeBy: none
+
+	column claim_number
+		dataType: string
+		sourceColumn: CLAIM_NUMBER
+		summarizeBy: none
+
+	column claim_status
+		dataType: string
+		sourceColumn: CLAIM_STATUS
+		summarizeBy: none
+
+	column cause_of_loss
+		dataType: string
+		sourceColumn: CAUSE_OF_LOSS
+		summarizeBy: none
+
+	/// Open-claim filter
+	column 'is_open_claim' = CLAIM_STATUS IN ('OPEN', 'REOPENED')
+		dataType: boolean
+
+	/// Catastrophe-related cause-of-loss filter
+	column 'is_cat_claim' = CAUSE_OF_LOSS IN ('Wind', 'Hail', 'Flood', 'Fire')
+		dataType: boolean
+
+	column reported_amount
+		dataType: int64
+		sourceColumn: REPORTED_AMOUNT
+		summarizeBy: none
+
+	column paid_loss
+		dataType: int64
+		sourceColumn: PAID_LOSS
+		summarizeBy: none
+
+	/// Allocated loss adjustment expense
+	column paid_alae
+		dataType: int64
+		sourceColumn: PAID_ALAE
+		summarizeBy: none
+
+	column case_reserve
+		dataType: int64
+		sourceColumn: CASE_RESERVE
+		summarizeBy: none
+
+	column salvage_subro
+		dataType: int64
+		sourceColumn: SALVAGE_SUBRO
+		summarizeBy: none
+
+	/// Helper: incurred loss per row
+	column 'incurred_loss' = PAID_LOSS + CASE_RESERVE - SALVAGE_SUBRO
+		dataType: int64
+		isHidden
+
+	/// Number of claims
+	measure 'claim_count' = COUNTROWS('fact_claim')
+
+	/// Paid losses
+	measure 'total_paid_loss' = SUM('fact_claim'[PAID_LOSS])
+
+	/// Paid ALAE
+	measure 'total_paid_alae' = SUM('fact_claim'[PAID_ALAE])
+
+	/// Outstanding case reserves
+	measure 'total_case_reserve' = SUM('fact_claim'[CASE_RESERVE])
+
+	/// Incurred losses net of salvage/subro
+	measure 'total_incurred_loss' = SUMX('fact_claim', 'fact_claim'[PAID_LOSS] + 'fact_claim'[CASE_RESERVE] - 'fact_claim'[SALVAGE_SUBRO])
+		annotation Synonyms = "incurred losses"
+
+	/// Average claim severity
+	measure 'average_claim_size' = DIVIDE(SUMX('fact_claim', 'fact_claim'[PAID_LOSS] + 'fact_claim'[CASE_RESERVE]), COUNTROWS('fact_claim'))
+
+	partition 'fact_claim-DirectLake' = entity
+		mode: directLake
+		source
+			expressionSource: DatabaseQuery
+			schemaName: Actuarial
+			entityName: fact_claim
+

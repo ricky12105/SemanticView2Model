@@ -1,0 +1,53 @@
+/// Issued policies (one row per policy term)
+table fact_policy
+
+	column policy_key
+		dataType: int64
+		sourceColumn: POLICY_KEY
+		summarizeBy: none
+
+	column policy_number
+		dataType: string
+		sourceColumn: POLICY_NUMBER
+		summarizeBy: none
+
+	column policy_status
+		dataType: string
+		sourceColumn: POLICY_STATUS
+		summarizeBy: none
+
+	column term_months
+		dataType: int64
+		sourceColumn: TERM_MONTHS
+		summarizeBy: none
+
+	/// Active-policy filter
+	column 'is_active' = POLICY_STATUS = 'ACTIVE'
+		dataType: boolean
+
+	column exposure_units
+		dataType: int64
+		sourceColumn: EXPOSURE_UNITS
+		summarizeBy: none
+
+	column annual_premium
+		dataType: int64
+		sourceColumn: ANNUAL_PREMIUM
+		summarizeBy: none
+
+	/// Number of policies
+	measure 'policy_count' = COUNTROWS('fact_policy')
+
+	/// Total exposure units (car-years, house-years)
+	measure 'total_exposure' = SUM('fact_policy'[EXPOSURE_UNITS])
+
+	/// Sum of annualized premium amounts
+	measure 'total_annual_premium' = SUM('fact_policy'[ANNUAL_PREMIUM])
+
+	partition 'fact_policy-DirectLake' = entity
+		mode: directLake
+		source
+			expressionSource: DatabaseQuery
+			schemaName: Actuarial
+			entityName: fact_policy
+

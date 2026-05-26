@@ -1,0 +1,30 @@
+/// Line of business / product
+table dim_product_lob
+
+	column product_key
+		dataType: int64
+		sourceColumn: PRODUCT_KEY
+		summarizeBy: none
+
+	column lob_code
+		dataType: string
+		sourceColumn: LOB_CODE
+		summarizeBy: none
+
+	column lob_name
+		dataType: string
+		sourceColumn: LOB_NAME
+		summarizeBy: none
+
+	column line_group
+		dataType: string
+		sourceColumn: LINE_GROUP
+		summarizeBy: none
+
+	partition 'dim_product_lob-DirectLake' = entity
+		mode: directLake
+		source
+			expressionSource: DatabaseQuery
+			schemaName: Actuarial
+			entityName: dim_product_lob
+

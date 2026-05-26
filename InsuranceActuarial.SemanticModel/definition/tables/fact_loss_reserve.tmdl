@@ -1,0 +1,54 @@
+/// Monthly loss-reserve snapshots (case + IBNR + ULAE)
+table fact_loss_reserve
+
+	column loss_reserve_key
+		dataType: int64
+		sourceColumn: LOSS_RESERVE_KEY
+		summarizeBy: none
+
+	column accounting_period
+		dataType: string
+		sourceColumn: ACCOUNTING_PERIOD
+		summarizeBy: none
+
+	column case_reserve_snap
+		dataType: int64
+		sourceColumn: CASE_RESERVE
+		summarizeBy: none
+
+	/// Incurred but not reported reserve
+	column ibnr_reserve
+		dataType: int64
+		sourceColumn: IBNR_RESERVE
+		summarizeBy: none
+
+	/// Unallocated loss adjustment expense reserve
+	column ulae_reserve
+		dataType: int64
+		sourceColumn: ULAE_RESERVE
+		summarizeBy: none
+
+	column paid_to_date
+		dataType: int64
+		sourceColumn: PAID_TO_DATE
+		summarizeBy: none
+
+	/// Case reserves at the latest snapshot date
+	measure 'total_case_reserves' = SUM('fact_claim'[CASE_RESERVE])
+		annotation NonAdditiveBy = "dim_date.date_val descending NULLS LAST"
+
+	/// IBNR reserves at the latest snapshot date
+	measure 'total_ibnr_reserves' = SUM('fact_loss_reserve'[IBNR_RESERVE])
+		annotation NonAdditiveBy = "dim_date.date_val descending NULLS LAST"
+
+	/// Total loss reserves (case + IBNR + ULAE) at latest snapshot
+	measure 'total_reserves' = SUMX('fact_loss_reserve', 'fact_claim'[CASE_RESERVE] + 'fact_loss_reserve'[IBNR_RESERVE] + 'fact_loss_reserve'[ULAE_RESERVE])
+		annotation NonAdditiveBy = "dim_date.date_val descending NULLS LAST"
+
+	partition 'fact_loss_reserve-DirectLake' = entity
+		mode: directLake
+		source
+			expressionSource: DatabaseQuery
+			schemaName: Actuarial
+			entityName: fact_loss_reserve
+

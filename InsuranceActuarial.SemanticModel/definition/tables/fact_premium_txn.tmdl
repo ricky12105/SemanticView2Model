@@ -1,0 +1,60 @@
+/// Premium accounting transactions (written / earned / commission)
+table fact_premium_txn
+
+	column premium_txn_key
+		dataType: int64
+		sourceColumn: PREMIUM_TXN_KEY
+		summarizeBy: none
+
+	column accounting_period
+		dataType: string
+		sourceColumn: ACCOUNTING_PERIOD
+		summarizeBy: none
+
+	column written_premium
+		dataType: int64
+		sourceColumn: WRITTEN_PREMIUM
+		summarizeBy: none
+
+	column earned_premium
+		dataType: int64
+		sourceColumn: EARNED_PREMIUM
+		summarizeBy: none
+
+	column unearned_premium
+		dataType: int64
+		sourceColumn: UNEARNED_PREMIUM
+		summarizeBy: none
+
+	column commission_amount
+		dataType: int64
+		sourceColumn: COMMISSION_AMOUNT
+		summarizeBy: none
+
+	column tax_amount
+		dataType: int64
+		sourceColumn: TAX_AMOUNT
+		summarizeBy: none
+
+	/// Gross written premium
+	measure 'total_written_premium' = SUM('fact_premium_txn'[WRITTEN_PREMIUM])
+		annotation Synonyms = "WP", "GWP"
+
+	/// Gross earned premium
+	measure 'total_earned_premium' = SUM('fact_premium_txn'[EARNED_PREMIUM])
+		annotation Synonyms = "EP", "GEP"
+
+	/// Commission paid to agents
+	measure 'total_commission' = SUM('fact_premium_txn'[COMMISSION_AMOUNT])
+
+	/// Trailing-12-month earned premium (window function metric)
+	measure 't12m_earned_premium' = CALCULATE(SUM('fact_premium_txn'[EARNED_PREMIUM]),
+    DATESINPERIOD('dim_date'[date_val], LASTDATE('dim_date'[date_val]), -12, MONTH))
+
+	partition 'fact_premium_txn-DirectLake' = entity
+		mode: directLake
+		source
+			expressionSource: DatabaseQuery
+			schemaName: Actuarial
+			entityName: fact_premium_txn
+

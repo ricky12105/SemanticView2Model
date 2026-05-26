@@ -1,0 +1,55 @@
+relationship policy_to_policyholder
+	fromColumn: fact_policy.POLICYHOLDER_KEY
+	toColumn: dim_policyholder.POLICYHOLDER_KEY
+
+relationship policy_to_agent
+	fromColumn: fact_policy.AGENT_KEY
+	toColumn: dim_agent.AGENT_KEY
+
+relationship policy_to_product
+	fromColumn: fact_policy.PRODUCT_KEY
+	toColumn: dim_product_lob.PRODUCT_KEY
+
+relationship policy_to_geography
+	fromColumn: fact_policy.GEOGRAPHY_KEY
+	toColumn: dim_geography.GEOGRAPHY_KEY
+
+relationship policy_to_effective_date
+	fromColumn: fact_policy.EFFECTIVE_DATE_KEY
+	toColumn: dim_date.DATE_KEY
+
+relationship premium_to_policy
+	fromColumn: fact_premium_txn.POLICY_KEY
+	toColumn: fact_policy.POLICY_KEY
+
+relationship premium_to_coverage
+	fromColumn: fact_premium_txn.COVERAGE_KEY
+	toColumn: dim_coverage.COVERAGE_KEY
+
+relationship premium_to_date
+	fromColumn: fact_premium_txn.TXN_DATE_KEY
+	toColumn: dim_date.DATE_KEY
+
+relationship claim_to_policy
+	fromColumn: fact_claim.POLICY_KEY
+	toColumn: fact_policy.POLICY_KEY
+
+relationship claim_to_coverage
+	fromColumn: fact_claim.COVERAGE_KEY
+	toColumn: dim_coverage.COVERAGE_KEY
+
+relationship claim_to_loss_date
+	fromColumn: fact_claim.LOSS_DATE_KEY
+	toColumn: dim_date.DATE_KEY
+
+relationship reserve_to_policy
+	fromColumn: fact_loss_reserve.POLICY_KEY
+	toColumn: fact_policy.POLICY_KEY
+
+relationship reserve_to_coverage
+	fromColumn: fact_loss_reserve.COVERAGE_KEY
+	toColumn: dim_coverage.COVERAGE_KEY
+
+relationship reserve_to_date
+	fromColumn: fact_loss_reserve.AS_OF_DATE_KEY
+	toColumn: dim_date.DATE_KEY

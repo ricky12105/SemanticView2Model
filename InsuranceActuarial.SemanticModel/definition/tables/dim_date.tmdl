@@ -1,0 +1,47 @@
+/// Calendar dimension
+table dim_date
+
+	column date_key
+		dataType: int64
+		sourceColumn: DATE_KEY
+		summarizeBy: none
+
+	column year_month
+		dataType: string
+		sourceColumn: YEAR_MONTH
+		summarizeBy: none
+
+	column month_name
+		dataType: string
+		sourceColumn: MONTH_NAME
+		summarizeBy: none
+
+	column quarter_num
+		dataType: int64
+		sourceColumn: QUARTER_NUM
+		summarizeBy: none
+
+	/// Use as a filter to restrict to month-end snapshots
+	column is_month_end
+		dataType: boolean
+		sourceColumn: IS_MONTH_END
+		summarizeBy: none
+
+	/// Calendar date
+	column date_val
+		dataType: dateTime
+		sourceColumn: DATE_VAL
+		summarizeBy: none
+
+	column year_num
+		dataType: int64
+		sourceColumn: YEAR_NUM
+		summarizeBy: none
+
+	partition 'dim_date-DirectLake' = entity
+		mode: directLake
+		source
+			expressionSource: DatabaseQuery
+			schemaName: Actuarial
+			entityName: dim_date
+

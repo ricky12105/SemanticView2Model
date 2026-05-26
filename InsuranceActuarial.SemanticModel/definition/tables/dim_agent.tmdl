@@ -1,0 +1,40 @@
+/// Producing agents
+table dim_agent
+
+	column agent_key
+		dataType: int64
+		sourceColumn: AGENT_KEY
+		summarizeBy: none
+
+	column agent_number
+		dataType: string
+		sourceColumn: AGENT_NUMBER
+		summarizeBy: none
+
+	column agent_name
+		dataType: string
+		sourceColumn: AGENT_NAME
+		summarizeBy: none
+
+	column agency_name
+		dataType: string
+		sourceColumn: AGENCY_NAME
+		summarizeBy: none
+
+	column tier
+		dataType: string
+		sourceColumn: TIER
+		summarizeBy: none
+
+	column hire_date
+		dataType: dateTime
+		sourceColumn: HIRE_DATE
+		summarizeBy: none
+
+	partition 'dim_agent-DirectLake' = entity
+		mode: directLake
+		source
+			expressionSource: DatabaseQuery
+			schemaName: Actuarial
+			entityName: dim_agent
+

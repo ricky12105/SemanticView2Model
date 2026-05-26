@@ -1,0 +1,59 @@
+/// Insureds
+table dim_policyholder
+
+	column policyholder_key
+		dataType: int64
+		sourceColumn: POLICYHOLDER_KEY
+		summarizeBy: none
+
+	column policyholder_number
+		dataType: string
+		sourceColumn: POLICYHOLDER_NUMBER
+		summarizeBy: none
+
+	column first_name
+		dataType: string
+		sourceColumn: FIRST_NAME
+		summarizeBy: none
+
+	column last_name
+		dataType: string
+		sourceColumn: LAST_NAME
+		summarizeBy: none
+
+	column gender
+		dataType: string
+		sourceColumn: GENDER
+		summarizeBy: none
+
+	column email
+		dataType: string
+		sourceColumn: EMAIL
+		summarizeBy: none
+
+	/// Current age (calculated)
+	column 'age_years' = DATEDIFF(year, DATE_OF_BIRTH, CURRENT_DATE())
+		dataType: int64
+
+	column date_of_birth
+		dataType: dateTime
+		sourceColumn: DATE_OF_BIRTH
+		summarizeBy: none
+
+	column acquired_date
+		dataType: dateTime
+		sourceColumn: ACQUIRED_DATE
+		summarizeBy: none
+
+	/// Helper for COUNT(DISTINCT policyholder)
+	column 'policyholder_count' = 1
+		dataType: int64
+		isHidden
+
+	partition 'dim_policyholder-DirectLake' = entity
+		mode: directLake
+		source
+			expressionSource: DatabaseQuery
+			schemaName: Actuarial
+			entityName: dim_policyholder
+

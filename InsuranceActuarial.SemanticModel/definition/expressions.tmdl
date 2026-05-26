@@ -1,0 +1,10 @@
+expression DatabaseQuery =
+		let
+			Source = Sql.Database("gdmlhopiathudcid2ifrk6ec4y-fxkxsrioryyevouz3mrd3op2ju.datawarehouse.fabric.microsoft.com", "InsuranceActuarialLH")
+		in
+			Source
+	lineageTag: 00000000-0000-0000-0000-000000000001
+	kind: m
+	annotation PBI_NavigationStepName = Navigation
+	annotation PBI_ResultType = Table
+	annotation Workspace = SemanticModelDemo
