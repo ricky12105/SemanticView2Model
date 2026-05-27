@@ -1,28 +1,28 @@
 /// US states & catastrophe zones
 table dim_geography
 
-	column geography_key
+	column GEOGRAPHY_KEY
 		dataType: int64
 		sourceColumn: GEOGRAPHY_KEY
 		summarizeBy: none
 
-	column state_code
+	column STATE_CODE
 		dataType: string
 		sourceColumn: STATE_CODE
 		summarizeBy: none
 
-	column state_name
+	column STATE_NAME
 		dataType: string
 		sourceColumn: STATE_NAME
 		summarizeBy: none
 
-	column region
+	column REGION
 		dataType: string
 		sourceColumn: REGION
 		summarizeBy: none
 
 	/// Catastrophe zone classification (null for non-CAT-exposed states)
-	column cat_zone
+	column CAT_ZONE
 		dataType: string
 		sourceColumn: CAT_ZONE
 		summarizeBy: none

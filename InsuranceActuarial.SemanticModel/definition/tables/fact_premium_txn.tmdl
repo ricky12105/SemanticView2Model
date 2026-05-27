@@ -1,39 +1,57 @@
 /// Premium accounting transactions (written / earned / commission)
 table fact_premium_txn
 
-	column premium_txn_key
+	column PREMIUM_TXN_KEY
 		dataType: int64
 		sourceColumn: PREMIUM_TXN_KEY
 		summarizeBy: none
 
-	column accounting_period
+	column ACCOUNTING_PERIOD
 		dataType: string
 		sourceColumn: ACCOUNTING_PERIOD
 		summarizeBy: none
 
-	column written_premium
+	column WRITTEN_PREMIUM
 		dataType: int64
 		sourceColumn: WRITTEN_PREMIUM
 		summarizeBy: none
 
-	column earned_premium
+	column EARNED_PREMIUM
 		dataType: int64
 		sourceColumn: EARNED_PREMIUM
 		summarizeBy: none
 
-	column unearned_premium
+	column UNEARNED_PREMIUM
 		dataType: int64
 		sourceColumn: UNEARNED_PREMIUM
 		summarizeBy: none
 
-	column commission_amount
+	column COMMISSION_AMOUNT
 		dataType: int64
 		sourceColumn: COMMISSION_AMOUNT
 		summarizeBy: none
 
-	column tax_amount
+	column TAX_AMOUNT
 		dataType: int64
 		sourceColumn: TAX_AMOUNT
+		summarizeBy: none
+
+	column POLICY_KEY
+		dataType: string
+		isHidden
+		sourceColumn: POLICY_KEY
+		summarizeBy: none
+
+	column COVERAGE_KEY
+		dataType: string
+		isHidden
+		sourceColumn: COVERAGE_KEY
+		summarizeBy: none
+
+	column TXN_DATE_KEY
+		dataType: string
+		isHidden
+		sourceColumn: TXN_DATE_KEY
 		summarizeBy: none
 
 	/// Gross written premium
@@ -48,8 +66,7 @@ table fact_premium_txn
 	measure 'total_commission' = SUM('fact_premium_txn'[COMMISSION_AMOUNT])
 
 	/// Trailing-12-month earned premium (window function metric)
-	measure 't12m_earned_premium' = CALCULATE(SUM('fact_premium_txn'[EARNED_PREMIUM]),
-    DATESINPERIOD('dim_date'[date_val], LASTDATE('dim_date'[date_val]), -12, MONTH))
+	measure 't12m_earned_premium' = CALCULATE(SUM('fact_premium_txn'[EARNED_PREMIUM]), DATESINPERIOD('dim_date'[date_val], LASTDATE('dim_date'[date_val]), -12, MONTH))
 
 	partition 'fact_premium_txn-DirectLake' = entity
 		mode: directLake

@@ -1,38 +1,64 @@
 /// Issued policies (one row per policy term)
 table fact_policy
 
-	column policy_key
+	column POLICY_KEY
 		dataType: int64
 		sourceColumn: POLICY_KEY
 		summarizeBy: none
 
-	column policy_number
+	column POLICY_NUMBER
 		dataType: string
 		sourceColumn: POLICY_NUMBER
 		summarizeBy: none
 
-	column policy_status
+	column POLICY_STATUS
 		dataType: string
 		sourceColumn: POLICY_STATUS
 		summarizeBy: none
 
-	column term_months
+	column TERM_MONTHS
 		dataType: int64
 		sourceColumn: TERM_MONTHS
 		summarizeBy: none
 
-	/// Active-policy filter
-	column 'is_active' = POLICY_STATUS = 'ACTIVE'
-		dataType: boolean
-
-	column exposure_units
+	column EXPOSURE_UNITS
 		dataType: int64
 		sourceColumn: EXPOSURE_UNITS
 		summarizeBy: none
 
-	column annual_premium
+	column ANNUAL_PREMIUM
 		dataType: int64
 		sourceColumn: ANNUAL_PREMIUM
+		summarizeBy: none
+
+	column POLICYHOLDER_KEY
+		dataType: string
+		isHidden
+		sourceColumn: POLICYHOLDER_KEY
+		summarizeBy: none
+
+	column AGENT_KEY
+		dataType: string
+		isHidden
+		sourceColumn: AGENT_KEY
+		summarizeBy: none
+
+	column PRODUCT_KEY
+		dataType: string
+		isHidden
+		sourceColumn: PRODUCT_KEY
+		summarizeBy: none
+
+	column GEOGRAPHY_KEY
+		dataType: string
+		isHidden
+		sourceColumn: GEOGRAPHY_KEY
+		summarizeBy: none
+
+	column EFFECTIVE_DATE_KEY
+		dataType: string
+		isHidden
+		sourceColumn: EFFECTIVE_DATE_KEY
 		summarizeBy: none
 
 	/// Number of policies

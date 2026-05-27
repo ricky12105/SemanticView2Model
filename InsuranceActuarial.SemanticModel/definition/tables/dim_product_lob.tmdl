@@ -1,22 +1,22 @@
 /// Line of business / product
 table dim_product_lob
 
-	column product_key
+	column PRODUCT_KEY
 		dataType: int64
 		sourceColumn: PRODUCT_KEY
 		summarizeBy: none
 
-	column lob_code
+	column LOB_CODE
 		dataType: string
 		sourceColumn: LOB_CODE
 		summarizeBy: none
 
-	column lob_name
+	column LOB_NAME
 		dataType: string
 		sourceColumn: LOB_NAME
 		summarizeBy: none
 
-	column line_group
+	column LINE_GROUP
 		dataType: string
 		sourceColumn: LINE_GROUP
 		summarizeBy: none

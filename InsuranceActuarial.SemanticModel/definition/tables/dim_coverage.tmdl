@@ -1,22 +1,22 @@
 /// Coverage type within a policy
 table dim_coverage
 
-	column coverage_key
+	column COVERAGE_KEY
 		dataType: int64
 		sourceColumn: COVERAGE_KEY
 		summarizeBy: none
 
-	column coverage_code
+	column COVERAGE_CODE
 		dataType: string
 		sourceColumn: COVERAGE_CODE
 		summarizeBy: none
 
-	column coverage_name
+	column COVERAGE_NAME
 		dataType: string
 		sourceColumn: COVERAGE_NAME
 		summarizeBy: none
 
-	column peril_category
+	column PERIL_CATEGORY
 		dataType: string
 		sourceColumn: PERIL_CATEGORY
 		summarizeBy: none

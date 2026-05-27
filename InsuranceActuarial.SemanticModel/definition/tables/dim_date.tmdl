@@ -1,39 +1,39 @@
 /// Calendar dimension
 table dim_date
 
-	column date_key
+	column DATE_KEY
 		dataType: int64
 		sourceColumn: DATE_KEY
 		summarizeBy: none
 
-	column year_month
+	column YEAR_MONTH
 		dataType: string
 		sourceColumn: YEAR_MONTH
 		summarizeBy: none
 
-	column month_name
+	column MONTH_NAME
 		dataType: string
 		sourceColumn: MONTH_NAME
 		summarizeBy: none
 
-	column quarter_num
+	column QUARTER_NUM
 		dataType: int64
 		sourceColumn: QUARTER_NUM
 		summarizeBy: none
 
 	/// Use as a filter to restrict to month-end snapshots
-	column is_month_end
+	column IS_MONTH_END
 		dataType: boolean
 		sourceColumn: IS_MONTH_END
 		summarizeBy: none
 
 	/// Calendar date
-	column date_val
+	column DATE_VAL
 		dataType: dateTime
 		sourceColumn: DATE_VAL
 		summarizeBy: none
 
-	column year_num
+	column YEAR_NUM
 		dataType: int64
 		sourceColumn: YEAR_NUM
 		summarizeBy: none

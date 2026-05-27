@@ -1,36 +1,54 @@
 /// Monthly loss-reserve snapshots (case + IBNR + ULAE)
 table fact_loss_reserve
 
-	column loss_reserve_key
+	column LOSS_RESERVE_KEY
 		dataType: int64
 		sourceColumn: LOSS_RESERVE_KEY
 		summarizeBy: none
 
-	column accounting_period
+	column ACCOUNTING_PERIOD
 		dataType: string
 		sourceColumn: ACCOUNTING_PERIOD
 		summarizeBy: none
 
-	column case_reserve_snap
+	column CASE_RESERVE
 		dataType: int64
 		sourceColumn: CASE_RESERVE
 		summarizeBy: none
 
 	/// Incurred but not reported reserve
-	column ibnr_reserve
+	column IBNR_RESERVE
 		dataType: int64
 		sourceColumn: IBNR_RESERVE
 		summarizeBy: none
 
 	/// Unallocated loss adjustment expense reserve
-	column ulae_reserve
+	column ULAE_RESERVE
 		dataType: int64
 		sourceColumn: ULAE_RESERVE
 		summarizeBy: none
 
-	column paid_to_date
+	column PAID_TO_DATE
 		dataType: int64
 		sourceColumn: PAID_TO_DATE
+		summarizeBy: none
+
+	column POLICY_KEY
+		dataType: string
+		isHidden
+		sourceColumn: POLICY_KEY
+		summarizeBy: none
+
+	column COVERAGE_KEY
+		dataType: string
+		isHidden
+		sourceColumn: COVERAGE_KEY
+		summarizeBy: none
+
+	column AS_OF_DATE_KEY
+		dataType: string
+		isHidden
+		sourceColumn: AS_OF_DATE_KEY
 		summarizeBy: none
 
 	/// Case reserves at the latest snapshot date

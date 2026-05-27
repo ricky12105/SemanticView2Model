@@ -1,54 +1,45 @@
 /// Insureds
 table dim_policyholder
 
-	column policyholder_key
+	column POLICYHOLDER_KEY
 		dataType: int64
 		sourceColumn: POLICYHOLDER_KEY
 		summarizeBy: none
 
-	column policyholder_number
+	column POLICYHOLDER_NUMBER
 		dataType: string
 		sourceColumn: POLICYHOLDER_NUMBER
 		summarizeBy: none
 
-	column first_name
+	column FIRST_NAME
 		dataType: string
 		sourceColumn: FIRST_NAME
 		summarizeBy: none
 
-	column last_name
+	column LAST_NAME
 		dataType: string
 		sourceColumn: LAST_NAME
 		summarizeBy: none
 
-	column gender
+	column GENDER
 		dataType: string
 		sourceColumn: GENDER
 		summarizeBy: none
 
-	column email
+	column EMAIL
 		dataType: string
 		sourceColumn: EMAIL
 		summarizeBy: none
 
-	/// Current age (calculated)
-	column 'age_years' = DATEDIFF(year, DATE_OF_BIRTH, CURRENT_DATE())
-		dataType: int64
-
-	column date_of_birth
+	column DATE_OF_BIRTH
 		dataType: dateTime
 		sourceColumn: DATE_OF_BIRTH
 		summarizeBy: none
 
-	column acquired_date
+	column ACQUIRED_DATE
 		dataType: dateTime
 		sourceColumn: ACQUIRED_DATE
 		summarizeBy: none
-
-	/// Helper for COUNT(DISTINCT policyholder)
-	column 'policyholder_count' = 1
-		dataType: int64
-		isHidden
 
 	partition 'dim_policyholder-DirectLake' = entity
 		mode: directLake

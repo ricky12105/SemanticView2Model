@@ -1,64 +1,69 @@
 /// Reported claims and their financials
 table fact_claim
 
-	column claim_key
+	column CLAIM_KEY
 		dataType: int64
 		sourceColumn: CLAIM_KEY
 		summarizeBy: none
 
-	column claim_number
+	column CLAIM_NUMBER
 		dataType: string
 		sourceColumn: CLAIM_NUMBER
 		summarizeBy: none
 
-	column claim_status
+	column CLAIM_STATUS
 		dataType: string
 		sourceColumn: CLAIM_STATUS
 		summarizeBy: none
 
-	column cause_of_loss
+	column CAUSE_OF_LOSS
 		dataType: string
 		sourceColumn: CAUSE_OF_LOSS
 		summarizeBy: none
 
-	/// Open-claim filter
-	column 'is_open_claim' = CLAIM_STATUS IN ('OPEN', 'REOPENED')
-		dataType: boolean
-
-	/// Catastrophe-related cause-of-loss filter
-	column 'is_cat_claim' = CAUSE_OF_LOSS IN ('Wind', 'Hail', 'Flood', 'Fire')
-		dataType: boolean
-
-	column reported_amount
+	column REPORTED_AMOUNT
 		dataType: int64
 		sourceColumn: REPORTED_AMOUNT
 		summarizeBy: none
 
-	column paid_loss
+	column PAID_LOSS
 		dataType: int64
 		sourceColumn: PAID_LOSS
 		summarizeBy: none
 
 	/// Allocated loss adjustment expense
-	column paid_alae
+	column PAID_ALAE
 		dataType: int64
 		sourceColumn: PAID_ALAE
 		summarizeBy: none
 
-	column case_reserve
+	column CASE_RESERVE
 		dataType: int64
 		sourceColumn: CASE_RESERVE
 		summarizeBy: none
 
-	column salvage_subro
+	column SALVAGE_SUBRO
 		dataType: int64
 		sourceColumn: SALVAGE_SUBRO
 		summarizeBy: none
 
-	/// Helper: incurred loss per row
-	column 'incurred_loss' = PAID_LOSS + CASE_RESERVE - SALVAGE_SUBRO
-		dataType: int64
+	column POLICY_KEY
+		dataType: string
 		isHidden
+		sourceColumn: POLICY_KEY
+		summarizeBy: none
+
+	column COVERAGE_KEY
+		dataType: string
+		isHidden
+		sourceColumn: COVERAGE_KEY
+		summarizeBy: none
+
+	column LOSS_DATE_KEY
+		dataType: string
+		isHidden
+		sourceColumn: LOSS_DATE_KEY
+		summarizeBy: none
 
 	/// Number of claims
 	measure 'claim_count' = COUNTROWS('fact_claim')
