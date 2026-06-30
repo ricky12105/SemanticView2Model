@@ -1,0 +1,7 @@
+pyyaml>=6.0
+pydantic>=2.6
+sqlglot>=25.0
+azure-identity>=1.17
+requests>=2.32
+semantic-link-labs>=0.7
+pytest>=8.0

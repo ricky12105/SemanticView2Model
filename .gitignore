@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Env / secrets
+.env
+config/mapping.yml
+
+# Build output
+out/
+out_*/
+dist/
+build/
+
+# IDE
+.vscode/launch.json

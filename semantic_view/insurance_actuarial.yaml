@@ -1,0 +1,361 @@
+# ============================================================================
+# File:    semantic_view/insurance_actuarial.yaml
+# Purpose: Snowflake Semantic View over the P&C insurance actuarial star
+#          schema in mock_data/. Exercises every feature the translator
+#          supports: regular + time dimensions, public/private facts,
+#          table-level metrics, derived metrics, window-function metric,
+#          relationships, synonyms, filter labels, verified queries, tags.
+# Spec:    https://docs.snowflake.com/en/user-guide/views-semantic/semantic-view-yaml-spec
+# ============================================================================
+name: insurance_actuarial
+description: "P&C actuarial semantic view covering premium, losses, reserves and standard ratios"
+
+tables:
+
+  # -------------------------------------------------------------------------
+  - name: dim_date
+    description: "Calendar dimension"
+    base_table: { database: INSURANCE_POC, schema: ACTUARIAL, table: DIM_DATE }
+    primary_key: [DATE_KEY]
+    synonyms: ["calendar", "date"]
+    dimensions:
+      - { name: date_key,     expr: DATE_KEY,     data_type: NUMBER, unique: true }
+      - { name: year_month,   expr: YEAR_MONTH,   data_type: VARCHAR, synonyms: ["accounting month"] }
+      - { name: month_name,   expr: MONTH_NAME,   data_type: VARCHAR }
+      - { name: quarter_num,  expr: QUARTER_NUM,  data_type: NUMBER }
+      - name: is_month_end
+        expr: IS_MONTH_END
+        data_type: BOOLEAN
+        labels: [filter]
+        description: "Use as a filter to restrict to month-end snapshots"
+    time_dimensions:
+      - { name: date_val,  expr: DATE_VAL, data_type: DATE, unique: true, description: "Calendar date" }
+      - { name: year_num,  expr: YEAR_NUM, data_type: NUMBER, synonyms: ["year"] }
+
+  # -------------------------------------------------------------------------
+  - name: dim_geography
+    description: "US states & catastrophe zones"
+    base_table: { database: INSURANCE_POC, schema: ACTUARIAL, table: DIM_GEOGRAPHY }
+    primary_key: [GEOGRAPHY_KEY]
+    dimensions:
+      - { name: geography_key, expr: GEOGRAPHY_KEY, data_type: NUMBER, unique: true }
+      - { name: state_code,    expr: STATE_CODE,    data_type: VARCHAR, synonyms: ["state"] }
+      - { name: state_name,    expr: STATE_NAME,    data_type: VARCHAR }
+      - { name: region,        expr: REGION,        data_type: VARCHAR, is_enum: true }
+      - name: cat_zone
+        expr: CAT_ZONE
+        data_type: VARCHAR
+        description: "Catastrophe zone classification (null for non-CAT-exposed states)"
+
+  # -------------------------------------------------------------------------
+  - name: dim_product_lob
+    description: "Line of business / product"
+    base_table: { database: INSURANCE_POC, schema: ACTUARIAL, table: DIM_PRODUCT_LOB }
+    primary_key: [PRODUCT_KEY]
+    synonyms: ["line of business", "LOB", "product"]
+    dimensions:
+      - { name: product_key, expr: PRODUCT_KEY, data_type: NUMBER, unique: true }
+      - { name: lob_code,    expr: LOB_CODE,    data_type: VARCHAR, is_enum: true }
+      - { name: lob_name,    expr: LOB_NAME,    data_type: VARCHAR }
+      - { name: line_group,  expr: LINE_GROUP,  data_type: VARCHAR, is_enum: true, synonyms: ["business segment"] }
+
+  # -------------------------------------------------------------------------
+  - name: dim_coverage
+    description: "Coverage type within a policy"
+    base_table: { database: INSURANCE_POC, schema: ACTUARIAL, table: DIM_COVERAGE }
+    primary_key: [COVERAGE_KEY]
+    dimensions:
+      - { name: coverage_key,   expr: COVERAGE_KEY,   data_type: NUMBER, unique: true }
+      - { name: coverage_code,  expr: COVERAGE_CODE,  data_type: VARCHAR }
+      - { name: coverage_name,  expr: COVERAGE_NAME,  data_type: VARCHAR }
+      - { name: peril_category, expr: PERIL_CATEGORY, data_type: VARCHAR, is_enum: true }
+
+  # -------------------------------------------------------------------------
+  - name: dim_agent
+    description: "Producing agents"
+    base_table: { database: INSURANCE_POC, schema: ACTUARIAL, table: DIM_AGENT }
+    primary_key: [AGENT_KEY]
+    dimensions:
+      - { name: agent_key,    expr: AGENT_KEY,    data_type: NUMBER, unique: true }
+      - { name: agent_number, expr: AGENT_NUMBER, data_type: VARCHAR, unique: true }
+      - { name: agent_name,   expr: AGENT_NAME,   data_type: VARCHAR }
+      - { name: agency_name,  expr: AGENCY_NAME,  data_type: VARCHAR }
+      - { name: tier,         expr: TIER,         data_type: VARCHAR, is_enum: true }
+    time_dimensions:
+      - { name: hire_date, expr: HIRE_DATE, data_type: DATE }
+    tags:
+      - { name: { database: INSURANCE_POC, schema: ACTUARIAL, tag: domain }, value: "distribution" }
+
+  # -------------------------------------------------------------------------
+  - name: dim_policyholder
+    description: "Insureds"
+    base_table: { database: INSURANCE_POC, schema: ACTUARIAL, table: DIM_POLICYHOLDER }
+    primary_key: [POLICYHOLDER_KEY]
+    dimensions:
+      - { name: policyholder_key,    expr: POLICYHOLDER_KEY,    data_type: NUMBER, unique: true }
+      - { name: policyholder_number, expr: POLICYHOLDER_NUMBER, data_type: VARCHAR, unique: true }
+      - name: first_name
+        expr: FIRST_NAME
+        data_type: VARCHAR
+        tags:
+          - { name: { database: INSURANCE_POC, schema: ACTUARIAL, tag: pii_type }, value: "name" }
+      - name: last_name
+        expr: LAST_NAME
+        data_type: VARCHAR
+        tags:
+          - { name: { database: INSURANCE_POC, schema: ACTUARIAL, tag: pii_type }, value: "name" }
+      - { name: gender, expr: GENDER, data_type: VARCHAR, is_enum: true }
+      - name: email
+        expr: EMAIL
+        data_type: VARCHAR
+        tags:
+          - { name: { database: INSURANCE_POC, schema: ACTUARIAL, tag: pii_type }, value: "email" }
+      - name: age_years
+        expr: DATEDIFF(year, DATE_OF_BIRTH, CURRENT_DATE())
+        data_type: NUMBER
+        description: "Current age (calculated)"
+    time_dimensions:
+      - { name: date_of_birth, expr: DATE_OF_BIRTH, data_type: DATE }
+      - { name: acquired_date, expr: ACQUIRED_DATE, data_type: DATE }
+    facts:
+      - name: policyholder_count
+        expr: 1
+        data_type: NUMBER
+        access_modifier: private_access
+        description: "Helper for COUNT(DISTINCT policyholder)"
+
+  # -------------------------------------------------------------------------
+  - name: fact_policy
+    description: "Issued policies (one row per policy term)"
+    base_table: { database: INSURANCE_POC, schema: ACTUARIAL, table: FACT_POLICY }
+    primary_key: [POLICY_KEY]
+    synonyms: ["policies", "book of business"]
+    dimensions:
+      - { name: policy_key,    expr: POLICY_KEY,    data_type: NUMBER, unique: true }
+      - { name: policy_number, expr: POLICY_NUMBER, data_type: VARCHAR, unique: true }
+      - { name: policy_status, expr: POLICY_STATUS, data_type: VARCHAR, is_enum: true }
+      - { name: term_months,   expr: TERM_MONTHS,   data_type: NUMBER }
+      - name: is_active
+        expr: POLICY_STATUS = 'ACTIVE'
+        data_type: BOOLEAN
+        labels: [filter]
+        description: "Active-policy filter"
+    facts:
+      - { name: exposure_units, expr: EXPOSURE_UNITS, data_type: NUMBER }
+      - { name: annual_premium, expr: ANNUAL_PREMIUM, data_type: NUMBER }
+    metrics:
+      - { name: policy_count,     expr: COUNT(*),                 description: "Number of policies" }
+      - { name: total_exposure,   expr: SUM(EXPOSURE_UNITS),      description: "Total exposure units (car-years, house-years)" }
+      - { name: total_annual_premium, expr: SUM(ANNUAL_PREMIUM),  description: "Sum of annualized premium amounts" }
+
+  # -------------------------------------------------------------------------
+  - name: fact_premium_txn
+    description: "Premium accounting transactions (written / earned / commission)"
+    base_table: { database: INSURANCE_POC, schema: ACTUARIAL, table: FACT_PREMIUM_TXN }
+    primary_key: [PREMIUM_TXN_KEY]
+    synonyms: ["premium", "premium transactions"]
+    dimensions:
+      - { name: premium_txn_key,   expr: PREMIUM_TXN_KEY,   data_type: NUMBER, unique: true }
+      - { name: accounting_period, expr: ACCOUNTING_PERIOD, data_type: VARCHAR, synonyms: ["accounting month"] }
+    facts:
+      - { name: written_premium,   expr: WRITTEN_PREMIUM,   data_type: NUMBER }
+      - { name: earned_premium,    expr: EARNED_PREMIUM,    data_type: NUMBER }
+      - { name: unearned_premium,  expr: UNEARNED_PREMIUM,  data_type: NUMBER }
+      - { name: commission_amount, expr: COMMISSION_AMOUNT, data_type: NUMBER }
+      - { name: tax_amount,        expr: TAX_AMOUNT,        data_type: NUMBER }
+    metrics:
+      - { name: total_written_premium, expr: SUM(WRITTEN_PREMIUM),   synonyms: ["WP", "GWP"], description: "Gross written premium" }
+      - { name: total_earned_premium,  expr: SUM(EARNED_PREMIUM),    synonyms: ["EP", "GEP"], description: "Gross earned premium" }
+      - { name: total_commission,      expr: SUM(COMMISSION_AMOUNT), description: "Commission paid to agents" }
+      - name: t12m_earned_premium
+        description: "Trailing-12-month earned premium (window function metric)"
+        expr: SUM(SUM(EARNED_PREMIUM)) OVER (ORDER BY dim_date.date_val ROWS BETWEEN 11 PRECEDING AND CURRENT ROW)
+
+  # -------------------------------------------------------------------------
+  - name: fact_claim
+    description: "Reported claims and their financials"
+    base_table: { database: INSURANCE_POC, schema: ACTUARIAL, table: FACT_CLAIM }
+    primary_key: [CLAIM_KEY]
+    synonyms: ["claims", "losses"]
+    dimensions:
+      - { name: claim_key,    expr: CLAIM_KEY,    data_type: NUMBER, unique: true }
+      - { name: claim_number, expr: CLAIM_NUMBER, data_type: VARCHAR, unique: true }
+      - { name: claim_status, expr: CLAIM_STATUS, data_type: VARCHAR, is_enum: true }
+      - { name: cause_of_loss, expr: CAUSE_OF_LOSS, data_type: VARCHAR, is_enum: true }
+      - name: is_open_claim
+        expr: CLAIM_STATUS IN ('OPEN', 'REOPENED')
+        data_type: BOOLEAN
+        labels: [filter]
+        description: "Open-claim filter"
+      - name: is_cat_claim
+        expr: CAUSE_OF_LOSS IN ('Wind', 'Hail', 'Flood', 'Fire')
+        data_type: BOOLEAN
+        labels: [filter]
+        description: "Catastrophe-related cause-of-loss filter"
+    facts:
+      - { name: reported_amount, expr: REPORTED_AMOUNT, data_type: NUMBER }
+      - { name: paid_loss,       expr: PAID_LOSS,       data_type: NUMBER }
+      - { name: paid_alae,       expr: PAID_ALAE,       data_type: NUMBER, description: "Allocated loss adjustment expense" }
+      - { name: case_reserve,    expr: CASE_RESERVE,    data_type: NUMBER }
+      - { name: salvage_subro,   expr: SALVAGE_SUBRO,   data_type: NUMBER }
+      - name: incurred_loss
+        expr: PAID_LOSS + CASE_RESERVE - SALVAGE_SUBRO
+        data_type: NUMBER
+        access_modifier: private_access
+        description: "Helper: incurred loss per row"
+    metrics:
+      - { name: claim_count,        expr: COUNT(*),                                                description: "Number of claims" }
+      - { name: total_paid_loss,    expr: SUM(PAID_LOSS),                                          description: "Paid losses" }
+      - { name: total_paid_alae,    expr: SUM(PAID_ALAE),                                          description: "Paid ALAE" }
+      - { name: total_case_reserve, expr: SUM(CASE_RESERVE),                                       description: "Outstanding case reserves" }
+      - { name: total_incurred_loss, expr: SUM(PAID_LOSS + CASE_RESERVE - SALVAGE_SUBRO),         synonyms: ["incurred losses"], description: "Incurred losses net of salvage/subro" }
+      - { name: average_claim_size, expr: "SUM(PAID_LOSS + CASE_RESERVE) / NULLIF(COUNT(*), 0)",    description: "Average claim severity" }
+
+  # -------------------------------------------------------------------------
+  - name: fact_loss_reserve
+    description: "Monthly loss-reserve snapshots (case + IBNR + ULAE)"
+    base_table: { database: INSURANCE_POC, schema: ACTUARIAL, table: FACT_LOSS_RESERVE }
+    primary_key: [LOSS_RESERVE_KEY]
+    dimensions:
+      - { name: loss_reserve_key,  expr: LOSS_RESERVE_KEY,  data_type: NUMBER, unique: true }
+      - { name: accounting_period, expr: ACCOUNTING_PERIOD, data_type: VARCHAR }
+    facts:
+      - { name: case_reserve_snap, expr: CASE_RESERVE, data_type: NUMBER }
+      - { name: ibnr_reserve,      expr: IBNR_RESERVE, data_type: NUMBER, description: "Incurred but not reported reserve" }
+      - { name: ulae_reserve,      expr: ULAE_RESERVE, data_type: NUMBER, description: "Unallocated loss adjustment expense reserve" }
+      - { name: paid_to_date,      expr: PAID_TO_DATE, data_type: NUMBER }
+    metrics:
+      # Semi-additive: reserves should NOT sum across time; take the latest snapshot
+      - name: total_case_reserves
+        expr: SUM(CASE_RESERVE)
+        description: "Case reserves at the latest snapshot date"
+        non_additive_dimensions:
+          - { table: dim_date, dimension: date_val, sort_direction: descending, null_order: last }
+      - name: total_ibnr_reserves
+        expr: SUM(IBNR_RESERVE)
+        description: "IBNR reserves at the latest snapshot date"
+        non_additive_dimensions:
+          - { table: dim_date, dimension: date_val, sort_direction: descending, null_order: last }
+      - name: total_reserves
+        expr: SUM(CASE_RESERVE + IBNR_RESERVE + ULAE_RESERVE)
+        description: "Total loss reserves (case + IBNR + ULAE) at latest snapshot"
+        non_additive_dimensions:
+          - { table: dim_date, dimension: date_val, sort_direction: descending, null_order: last }
+
+# ---------------------------------------------------------------------------
+# RELATIONSHIPS
+# ---------------------------------------------------------------------------
+relationships:
+  - name: policy_to_policyholder
+    left_table: fact_policy
+    right_table: dim_policyholder
+    relationship_columns: [{ left_column: POLICYHOLDER_KEY, right_column: POLICYHOLDER_KEY }]
+  - name: policy_to_agent
+    left_table: fact_policy
+    right_table: dim_agent
+    relationship_columns: [{ left_column: AGENT_KEY, right_column: AGENT_KEY }]
+  - name: policy_to_product
+    left_table: fact_policy
+    right_table: dim_product_lob
+    relationship_columns: [{ left_column: PRODUCT_KEY, right_column: PRODUCT_KEY }]
+  - name: policy_to_geography
+    left_table: fact_policy
+    right_table: dim_geography
+    relationship_columns: [{ left_column: GEOGRAPHY_KEY, right_column: GEOGRAPHY_KEY }]
+  - name: policy_to_effective_date
+    left_table: fact_policy
+    right_table: dim_date
+    relationship_columns: [{ left_column: EFFECTIVE_DATE_KEY, right_column: DATE_KEY }]
+  - name: premium_to_policy
+    left_table: fact_premium_txn
+    right_table: fact_policy
+    relationship_columns: [{ left_column: POLICY_KEY, right_column: POLICY_KEY }]
+  - name: premium_to_coverage
+    left_table: fact_premium_txn
+    right_table: dim_coverage
+    relationship_columns: [{ left_column: COVERAGE_KEY, right_column: COVERAGE_KEY }]
+  - name: premium_to_date
+    left_table: fact_premium_txn
+    right_table: dim_date
+    relationship_columns: [{ left_column: TXN_DATE_KEY, right_column: DATE_KEY }]
+  - name: claim_to_policy
+    left_table: fact_claim
+    right_table: fact_policy
+    relationship_columns: [{ left_column: POLICY_KEY, right_column: POLICY_KEY }]
+  - name: claim_to_coverage
+    left_table: fact_claim
+    right_table: dim_coverage
+    relationship_columns: [{ left_column: COVERAGE_KEY, right_column: COVERAGE_KEY }]
+  - name: claim_to_loss_date
+    left_table: fact_claim
+    right_table: dim_date
+    relationship_columns: [{ left_column: LOSS_DATE_KEY, right_column: DATE_KEY }]
+  - name: reserve_to_policy
+    left_table: fact_loss_reserve
+    right_table: fact_policy
+    relationship_columns: [{ left_column: POLICY_KEY, right_column: POLICY_KEY }]
+  - name: reserve_to_coverage
+    left_table: fact_loss_reserve
+    right_table: dim_coverage
+    relationship_columns: [{ left_column: COVERAGE_KEY, right_column: COVERAGE_KEY }]
+  - name: reserve_to_date
+    left_table: fact_loss_reserve
+    right_table: dim_date
+    relationship_columns: [{ left_column: AS_OF_DATE_KEY, right_column: DATE_KEY }]
+
+# ---------------------------------------------------------------------------
+# DERIVED METRICS (view-level, across tables)
+# ---------------------------------------------------------------------------
+metrics:
+  - name: loss_ratio
+    description: "Incurred losses ÷ earned premium"
+    expr: fact_claim.total_incurred_loss / NULLIF(fact_premium_txn.total_earned_premium, 0)
+    synonyms: ["LR"]
+
+  - name: expense_ratio
+    description: "Commissions ÷ written premium"
+    expr: fact_premium_txn.total_commission / NULLIF(fact_premium_txn.total_written_premium, 0)
+
+  - name: combined_ratio
+    description: "Loss ratio + expense ratio (a key underwriting profitability measure)"
+    expr: (fact_claim.total_incurred_loss + fact_premium_txn.total_commission) / NULLIF(fact_premium_txn.total_earned_premium, 0)
+    synonyms: ["CR"]
+
+  - name: claim_frequency
+    description: "Claims per unit of exposure"
+    expr: fact_claim.claim_count / NULLIF(fact_policy.total_exposure, 0)
+
+# ---------------------------------------------------------------------------
+# VERIFIED QUERIES (passed through as model annotations)
+# ---------------------------------------------------------------------------
+verified_queries:
+  - name: loss_ratio_by_lob_ytd
+    question: "What is the year-to-date loss ratio by line of business?"
+    verified_by: "actuarial-poc"
+    use_as_onboarding_question: true
+    sql: |
+      SELECT * FROM SEMANTIC_VIEW(
+        insurance_actuarial
+        DIMENSIONS dim_product_lob.lob_name
+        METRICS loss_ratio
+      )
+      WHERE dim_date.year_num = YEAR(CURRENT_DATE());
+
+  - name: top_states_by_incurred
+    question: "Which 10 states have the highest incurred losses this year?"
+    sql: |
+      SELECT * FROM SEMANTIC_VIEW(
+        insurance_actuarial
+        DIMENSIONS dim_geography.state_name
+        METRICS fact_claim.total_incurred_loss
+      )
+      WHERE dim_date.year_num = YEAR(CURRENT_DATE())
+      ORDER BY total_incurred_loss DESC
+      LIMIT 10;
+
+# ---------------------------------------------------------------------------
+# VIEW-LEVEL TAGS
+# ---------------------------------------------------------------------------
+tags:
+  - { name: { database: INSURANCE_POC, schema: ACTUARIAL, tag: domain }, value: "actuarial" }
+  - { name: { database: INSURANCE_POC, schema: ACTUARIAL, tag: maturity }, value: "poc" }

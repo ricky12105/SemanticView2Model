@@ -1,0 +1,151 @@
+-- ============================================================================
+-- File:    mock_data/01_create_schema.sql
+-- Purpose: Create a representative P&C insurance actuarial star schema.
+-- Target:  Snowflake (any small warehouse). Database & schema names are
+--          parameterized via session variables so you can point at any DB.
+-- Usage:
+--     USE WAREHOUSE <wh>;
+--     SET TARGET_DB = 'INSURANCE_POC';
+--     SET TARGET_SCHEMA = 'ACTUARIAL';
+--     CREATE DATABASE IF NOT EXISTS IDENTIFIER($TARGET_DB);
+--     USE DATABASE IDENTIFIER($TARGET_DB);
+--     CREATE SCHEMA IF NOT EXISTS IDENTIFIER($TARGET_SCHEMA);
+--     USE SCHEMA IDENTIFIER($TARGET_SCHEMA);
+--     -- then run this script
+-- ============================================================================
+
+-- ---------------------------------------------------------------------------
+-- DIMENSIONS
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE TABLE DIM_DATE (
+    DATE_KEY            NUMBER(8,0)   NOT NULL,    -- YYYYMMDD
+    DATE_VAL            DATE          NOT NULL,
+    DAY_OF_MONTH        NUMBER(2,0)   NOT NULL,
+    MONTH_NUM           NUMBER(2,0)   NOT NULL,
+    MONTH_NAME          VARCHAR(16)   NOT NULL,
+    QUARTER_NUM         NUMBER(1,0)   NOT NULL,
+    YEAR_NUM            NUMBER(4,0)   NOT NULL,
+    YEAR_MONTH          VARCHAR(7)    NOT NULL,    -- YYYY-MM
+    IS_MONTH_END        BOOLEAN       NOT NULL,
+    IS_QUARTER_END      BOOLEAN       NOT NULL,
+    CONSTRAINT PK_DIM_DATE PRIMARY KEY (DATE_KEY)
+);
+
+CREATE OR REPLACE TABLE DIM_GEOGRAPHY (
+    GEOGRAPHY_KEY       NUMBER(10,0)  NOT NULL,
+    STATE_CODE          VARCHAR(2)    NOT NULL,
+    STATE_NAME          VARCHAR(64)   NOT NULL,
+    REGION              VARCHAR(32)   NOT NULL,   -- Northeast / Midwest / South / West
+    CAT_ZONE            VARCHAR(32),              -- catastrophe zone, e.g. "Atlantic Hurricane"
+    CONSTRAINT PK_DIM_GEOGRAPHY PRIMARY KEY (GEOGRAPHY_KEY)
+);
+
+CREATE OR REPLACE TABLE DIM_PRODUCT_LOB (
+    PRODUCT_KEY         NUMBER(10,0)  NOT NULL,
+    LOB_CODE            VARCHAR(16)   NOT NULL,   -- AUTO, HOME, COMM, UMB, WC
+    LOB_NAME            VARCHAR(64)   NOT NULL,
+    LINE_GROUP          VARCHAR(32)   NOT NULL,   -- Personal / Commercial
+    CONSTRAINT PK_DIM_PRODUCT_LOB PRIMARY KEY (PRODUCT_KEY)
+);
+
+CREATE OR REPLACE TABLE DIM_COVERAGE (
+    COVERAGE_KEY        NUMBER(10,0)  NOT NULL,
+    COVERAGE_CODE       VARCHAR(16)   NOT NULL,   -- BI, PD, COLL, COMP, DWELL, LIAB
+    COVERAGE_NAME       VARCHAR(64)   NOT NULL,
+    PERIL_CATEGORY      VARCHAR(32)   NOT NULL,   -- Liability / Property / Catastrophe
+    CONSTRAINT PK_DIM_COVERAGE PRIMARY KEY (COVERAGE_KEY)
+);
+
+CREATE OR REPLACE TABLE DIM_AGENT (
+    AGENT_KEY           NUMBER(10,0)  NOT NULL,
+    AGENT_NUMBER        VARCHAR(16)   NOT NULL,
+    AGENT_NAME          VARCHAR(128)  NOT NULL,
+    AGENCY_NAME         VARCHAR(128)  NOT NULL,
+    HIRE_DATE           DATE          NOT NULL,
+    TIER                VARCHAR(16)   NOT NULL,   -- Platinum / Gold / Silver / Bronze
+    CONSTRAINT PK_DIM_AGENT PRIMARY KEY (AGENT_KEY),
+    CONSTRAINT UK_DIM_AGENT_NUM UNIQUE (AGENT_NUMBER)
+);
+
+CREATE OR REPLACE TABLE DIM_POLICYHOLDER (
+    POLICYHOLDER_KEY    NUMBER(10,0)  NOT NULL,
+    POLICYHOLDER_NUMBER VARCHAR(16)   NOT NULL,
+    FIRST_NAME          VARCHAR(64)   NOT NULL,
+    LAST_NAME           VARCHAR(64)   NOT NULL,
+    DATE_OF_BIRTH       DATE          NOT NULL,
+    GENDER              VARCHAR(8),
+    GEOGRAPHY_KEY       NUMBER(10,0)  NOT NULL,
+    EMAIL               VARCHAR(128),
+    ACQUIRED_DATE       DATE          NOT NULL,
+    CONSTRAINT PK_DIM_POLICYHOLDER PRIMARY KEY (POLICYHOLDER_KEY),
+    CONSTRAINT UK_DIM_POLICYHOLDER_NUM UNIQUE (POLICYHOLDER_NUMBER),
+    CONSTRAINT FK_DIM_POLICYHOLDER_GEO FOREIGN KEY (GEOGRAPHY_KEY) REFERENCES DIM_GEOGRAPHY(GEOGRAPHY_KEY)
+);
+
+-- ---------------------------------------------------------------------------
+-- FACTS
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE TABLE FACT_POLICY (
+    POLICY_KEY          NUMBER(12,0)  NOT NULL,
+    POLICY_NUMBER       VARCHAR(20)   NOT NULL,
+    POLICYHOLDER_KEY    NUMBER(10,0)  NOT NULL,
+    AGENT_KEY           NUMBER(10,0)  NOT NULL,
+    PRODUCT_KEY         NUMBER(10,0)  NOT NULL,
+    GEOGRAPHY_KEY       NUMBER(10,0)  NOT NULL,
+    EFFECTIVE_DATE_KEY  NUMBER(8,0)   NOT NULL,
+    EXPIRY_DATE_KEY     NUMBER(8,0)   NOT NULL,
+    POLICY_STATUS       VARCHAR(16)   NOT NULL,   -- ACTIVE / CANCELLED / EXPIRED / NONRENEW
+    TERM_MONTHS         NUMBER(3,0)   NOT NULL,
+    EXPOSURE_UNITS      NUMBER(12,4)  NOT NULL,   -- car-years, house-years
+    ANNUAL_PREMIUM      NUMBER(14,2)  NOT NULL,
+    CONSTRAINT PK_FACT_POLICY PRIMARY KEY (POLICY_KEY),
+    CONSTRAINT UK_FACT_POLICY_NUM UNIQUE (POLICY_NUMBER)
+);
+
+CREATE OR REPLACE TABLE FACT_PREMIUM_TXN (
+    PREMIUM_TXN_KEY     NUMBER(14,0)  NOT NULL,
+    POLICY_KEY          NUMBER(12,0)  NOT NULL,
+    COVERAGE_KEY        NUMBER(10,0)  NOT NULL,
+    TXN_DATE_KEY        NUMBER(8,0)   NOT NULL,
+    ACCOUNTING_PERIOD   VARCHAR(7)    NOT NULL,   -- YYYY-MM
+    WRITTEN_PREMIUM     NUMBER(14,2)  NOT NULL,
+    EARNED_PREMIUM      NUMBER(14,2)  NOT NULL,
+    UNEARNED_PREMIUM    NUMBER(14,2)  NOT NULL,
+    COMMISSION_AMOUNT   NUMBER(14,2)  NOT NULL,
+    TAX_AMOUNT          NUMBER(14,2)  NOT NULL,
+    CONSTRAINT PK_FACT_PREMIUM_TXN PRIMARY KEY (PREMIUM_TXN_KEY)
+);
+
+CREATE OR REPLACE TABLE FACT_CLAIM (
+    CLAIM_KEY           NUMBER(12,0)  NOT NULL,
+    CLAIM_NUMBER        VARCHAR(20)   NOT NULL,
+    POLICY_KEY          NUMBER(12,0)  NOT NULL,
+    COVERAGE_KEY        NUMBER(10,0)  NOT NULL,
+    LOSS_DATE_KEY       NUMBER(8,0)   NOT NULL,
+    REPORT_DATE_KEY     NUMBER(8,0)   NOT NULL,
+    CLOSE_DATE_KEY      NUMBER(8,0),              -- NULL = open claim
+    CLAIM_STATUS        VARCHAR(16)   NOT NULL,   -- OPEN / CLOSED / REOPENED / DENIED
+    CAUSE_OF_LOSS       VARCHAR(64)   NOT NULL,
+    REPORTED_AMOUNT     NUMBER(14,2)  NOT NULL,
+    PAID_LOSS           NUMBER(14,2)  NOT NULL,
+    PAID_ALAE           NUMBER(14,2)  NOT NULL,   -- allocated loss adjustment expense
+    CASE_RESERVE        NUMBER(14,2)  NOT NULL,
+    SALVAGE_SUBRO       NUMBER(14,2)  NOT NULL,
+    CONSTRAINT PK_FACT_CLAIM PRIMARY KEY (CLAIM_KEY),
+    CONSTRAINT UK_FACT_CLAIM_NUM UNIQUE (CLAIM_NUMBER)
+);
+
+CREATE OR REPLACE TABLE FACT_LOSS_RESERVE (
+    LOSS_RESERVE_KEY    NUMBER(14,0)  NOT NULL,
+    POLICY_KEY          NUMBER(12,0)  NOT NULL,
+    COVERAGE_KEY        NUMBER(10,0)  NOT NULL,
+    AS_OF_DATE_KEY      NUMBER(8,0)   NOT NULL,
+    ACCOUNTING_PERIOD   VARCHAR(7)    NOT NULL,
+    CASE_RESERVE        NUMBER(14,2)  NOT NULL,
+    IBNR_RESERVE        NUMBER(14,2)  NOT NULL,   -- Incurred but not reported
+    ULAE_RESERVE        NUMBER(14,2)  NOT NULL,   -- Unallocated loss adjustment expense
+    PAID_TO_DATE        NUMBER(14,2)  NOT NULL,
+    CONSTRAINT PK_FACT_LOSS_RESERVE PRIMARY KEY (LOSS_RESERVE_KEY)
+);

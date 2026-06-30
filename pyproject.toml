@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "semanticview2model"
+version = "0.1.0"
+description = "Translate Snowflake Semantic Views to Microsoft Fabric semantic models (TMDL/PBIP, Direct Lake)"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+    "pydantic>=2.6",
+    "sqlglot>=25.0",
+    "azure-identity>=1.17",
+    "requests>=2.32",
+]
+
+[project.optional-dependencies]
+fabric = ["semantic-link-labs>=0.7"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+sv2m = "translator.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["translator*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

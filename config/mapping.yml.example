@@ -1,0 +1,39 @@
+# ============================================================================
+# File:    config/mapping.yml.example
+# Purpose: EXAMPLE mapping configuration - Copy to mapping.yml and customize
+# Usage:   cp config/mapping.yml.example config/mapping.yml
+#          Then edit mapping.yml with your actual Fabric workspace/lakehouse IDs
+# ============================================================================
+
+# Fabric workspace + lakehouse hosting the mirrored Snowflake data
+fabric:
+  workspace_id: "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"  # Your Fabric workspace GUID
+  workspace_name: "YourWorkspaceName"                    # Your workspace display name
+  lakehouse_id: "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"  # Your lakehouse GUID
+  lakehouse_name: "YourLakehouseName"                    # Your lakehouse display name
+  # SQL endpoint of the lakehouse (from Lakehouse → Settings → SQL connection string)
+  sql_endpoint: "your-lakehouse-guid.datawarehouse.fabric.microsoft.com"
+
+# Storage mode for generated tables: "directlake" (default) | "import" | "directquery"
+default_storage_mode: directlake
+
+# Calc column strategy: "materialize" (push to lakehouse Delta) | "dax" (in-model calc cols)
+calc_column_strategy: dax
+
+# Snowflake database/schema → Fabric mirrored namespace
+namespace_map:
+  - snowflake: { database: YOUR_DATABASE, schema: YOUR_SCHEMA }
+    fabric:    { schema: YourMirroredSchema }  # OneLake schema (usually uppercase from Snowflake)
+
+# Per-table overrides (for storage mode, renaming, etc.)
+# Example: Tables with calculated columns should use Import mode when calc_column_strategy is "dax"
+table_overrides:
+  - snowflake: { database: YOUR_DATABASE, schema: YOUR_SCHEMA, table: your_table_name }
+    storage_mode: import  # Override to import for tables with calc columns
+  # Add more overrides as needed
+
+# Default model-level options
+model:
+  name: "YourSemanticModelName"
+  culture: "en-US"
+  compatibility_level: 1604
