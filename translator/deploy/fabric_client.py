@@ -87,3 +87,78 @@ def _poll(op_url: str, headers: dict, timeout_s: int) -> dict:
             return body
         time.sleep(2)
     raise TimeoutError(f"Fabric LRO did not complete within {timeout_s}s: {op_url}")
+
+
+def _poll_result(op_url: str, result_url: str | None, headers: dict, timeout_s: int) -> dict:
+    """Poll an LRO to completion, then fetch its result payload."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        r = requests.get(op_url, headers=headers, timeout=30)
+        r.raise_for_status()
+        body = r.json()
+        status = body.get("status")
+        if status == "Failed":
+            raise RuntimeError(f"Fabric operation failed: {body}")
+        if status == "Succeeded":
+            res_url = result_url or f"{op_url}/result"
+            rr = requests.get(res_url, headers=headers, timeout=60)
+            rr.raise_for_status()
+            return rr.json()
+        time.sleep(2)
+    raise TimeoutError(f"Fabric LRO did not complete within {timeout_s}s: {op_url}")
+
+
+def _find_item(workspace_id: str, display_name: str, headers: dict) -> dict | None:
+    list_url = f"{_FABRIC_BASE}/workspaces/{workspace_id}/items?type=SemanticModel"
+    resp = requests.get(list_url, headers=headers, timeout=60)
+    resp.raise_for_status()
+    return next(
+        (i for i in resp.json().get("value", []) if i.get("displayName") == display_name),
+        None,
+    )
+
+
+def get_semantic_model(
+    workspace_id: str,
+    out_dir: Path,
+    *,
+    display_name: str | None = None,
+    item_id: str | None = None,
+    timeout_s: int = 600,
+) -> Path:
+    """Pull a SemanticModel definition from Fabric and write its TMDL files locally.
+
+    Provide either ``display_name`` or ``item_id``. Returns the folder the
+    definition parts were written to (``out_dir/<name>.SemanticModel``).
+    """
+    headers = {"Authorization": f"Bearer {_token()}", "Content-Type": "application/json"}
+
+    if item_id is None:
+        if not display_name:
+            raise ValueError("display_name or item_id is required")
+        item = _find_item(workspace_id, display_name, headers)
+        if item is None:
+            raise LookupError(f"SemanticModel '{display_name}' not found in workspace {workspace_id}")
+        item_id = item["id"]
+        display_name = item.get("displayName", display_name)
+
+    url = f"{_FABRIC_BASE}/workspaces/{workspace_id}/items/{item_id}/getDefinition"
+    resp = requests.post(url, headers=headers, timeout=120)
+    if resp.status_code == 202:
+        op_url = resp.headers.get("Location")
+        result_url = resp.headers.get("Location")
+        body = _poll_result(op_url, result_url and f"{op_url}/result", headers, timeout_s)
+    else:
+        resp.raise_for_status()
+        body = resp.json()
+
+    parts = body.get("definition", {}).get("parts", [])
+    root = Path(out_dir) / f"{display_name or item_id}.SemanticModel"
+    for part in parts:
+        rel = part["path"]
+        payload = part.get("payload", "")
+        data = base64.b64decode(payload) if part.get("payloadType") == "InlineBase64" else payload.encode()
+        dest = root / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+    return root

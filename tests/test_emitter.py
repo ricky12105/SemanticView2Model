@@ -41,15 +41,16 @@ def test_emit_full_pipeline(tmp_path: Path) -> None:
     expected = {t.name for t in view.tables} | {"_Measures"}
     assert expected.issubset(table_files), f"missing tables: {expected - table_files}"
 
-    # Spot-check Direct Lake partition for fact_policy
+    # fact_policy is import-mode in the default mapping (calc-column table);
+    # its measures still emit as usual.
     fp = (tables_dir / "fact_policy.tmdl").read_text(encoding="utf-8")
-    assert "mode: directLake" in fp
-    assert "entityName: fact_policy" in fp
     assert "measure 'policy_count'" in fp
     assert "COUNTROWS('fact_policy')" in fp
 
-    # Premium table: t12m → DATESINPERIOD
+    # Premium table: t12m → DATESINPERIOD, and a Direct Lake partition (not overridden to import)
     pt = (tables_dir / "fact_premium_txn.tmdl").read_text(encoding="utf-8")
+    assert "mode: directLake" in pt
+    assert "entityName: fact_premium_txn" in pt
     assert "DATESINPERIOD" in pt, "trailing-12-month metric not rewritten"
     assert "measure 't12m_earned_premium'" in pt
 
@@ -70,7 +71,7 @@ def test_emit_full_pipeline(tmp_path: Path) -> None:
     # Relationships
     rels = (defn / "relationships.tmdl").read_text(encoding="utf-8")
     assert "fromColumn: fact_policy.POLICYHOLDER_KEY" in rels
-    assert "toColumn: dim_policyholder.POLICYHOLDER_KEY" in rels
+    assert "toColumn: dim_policyholder.policyholder_key" in rels
 
     # PBIP wrapper
     pbip_path = write_pbip(model_dir, config)

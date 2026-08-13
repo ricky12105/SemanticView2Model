@@ -377,7 +377,8 @@ _RE_REL = re.compile(
     r"^(?P<name>\w+)\s+AS\s+(?P<lt>\w+)\s*\((?P<lc>[^)]+)\)\s*REFERENCES\s+(?P<rt>\w+)\s*\((?P<rc>[^)]+)\)",
     re.IGNORECASE,
 )
-_RE_QUAL = re.compile(r"^(?P<priv>PRIVATE\s+)?(?P<tbl>\w+)\.(?P<col>\w+)\s+AS\s+", re.IGNORECASE)
+# Support quoted identifiers: table.column or table."column"
+_RE_QUAL = re.compile(r'^(?P<priv>PRIVATE\s+)?(?P<tbl>\w+)\.(?P<col>(?:\w+|"[^"]+"))\s+AS\s+', re.IGNORECASE)
 _RE_VIEW_METRIC = re.compile(r"^(?P<name>\w+)\s+AS\s+", re.IGNORECASE)
 
 
@@ -484,7 +485,11 @@ def _parse_qualified_items(inner: str) -> list[tuple[str, str, str, str, dict]]:
         expr, trailers = _extract_trailers(rest)
         if pre_labels:
             trailers["labels"] = sorted(set((trailers.get("labels") or []) + pre_labels))
-        out.append((access, m.group("tbl"), m.group("col"), expr, trailers))
+        # Strip quotes from column name if present
+        col = m.group("col")
+        if col.startswith('"') and col.endswith('"'):
+            col = col[1:-1]
+        out.append((access, m.group("tbl"), col, expr, trailers))
     return out
 
 

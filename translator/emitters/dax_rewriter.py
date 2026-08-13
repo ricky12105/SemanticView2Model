@@ -29,6 +29,7 @@ class DaxRewriteResult:
 
 _RE_COUNT_STAR = re.compile(r"\bCOUNT\s*\(\s*\*\s*\)", re.IGNORECASE)
 _RE_SUM = re.compile(r"\bSUM\s*\(", re.IGNORECASE)
+_RE_DIV0 = re.compile(r"\bDIV0\s*\(\s*(?P<num>.+?)\s*,\s*(?P<den>.+?)\s*\)", re.IGNORECASE | re.DOTALL)
 _RE_NULLIF_DIV = re.compile(
     r"(?P<num>.+?)\s*/\s*NULLIF\s*\(\s*(?P<den>.+?)\s*,\s*0\s*\)",
     re.IGNORECASE | re.DOTALL,
@@ -102,7 +103,12 @@ def rewrite_metric(
             notes=["window→DATESINPERIOD"],
         )
 
-    # 2. a / NULLIF(b, 0) → DIVIDE(a, b)  (apply once, then continue)
+    # 2. DIV0(a, b) → DIVIDE(a, b) (Snowflake safe division, paren-balanced)
+    text = _rewrite_div0_calls(text, owning_table_dax, column_owner, metric_owner, notes, local_columns)
+    if "DIVIDE(" in text and "DIV0" not in text.upper():
+        pass  # continue with generic rewriting below
+
+    # 3. a / NULLIF(b, 0) → DIVIDE(a, b)  (apply once, then continue)
     def _div_repl(mm: re.Match[str]) -> str:
         n = _rewrite_inner(mm.group("num"), owning_table_dax, column_owner, metric_owner, notes, local_columns)
         d = _rewrite_inner(mm.group("den"), owning_table_dax, column_owner, metric_owner, notes, local_columns)
@@ -112,7 +118,7 @@ def rewrite_metric(
         text = _RE_NULLIF_DIV.sub(_div_repl, text)
         return DaxRewriteResult(expression=text, needs_review=False, notes=notes or ["nullif→DIVIDE"])
 
-    # 3. Generic rewrite (COUNT(*), SUM(...), cross-metric refs, column refs)
+    # 4. Generic rewrite (COUNT(*), SUM(...), cross-metric refs, column refs)
     rewritten = _rewrite_inner(text, owning_table_dax, column_owner, metric_owner, notes, local_columns)
     return DaxRewriteResult(expression=rewritten, needs_review=False, notes=notes)
 
@@ -223,6 +229,96 @@ def _rewrite_sum_calls(
             out.append(f"SUMX({table_ref}, {inner_rew})")
             notes.append("SUM(expr)→SUMX")
         i = close
+    return "".join(out)
+
+
+_RE_DIV0_HEAD = re.compile(r"\bDIV0\s*\(", re.IGNORECASE)
+
+
+def _split_args_top_level(text: str) -> list[str]:
+    """Split on commas at paren depth 0, respecting single-quoted strings."""
+    args: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c == "'":
+            buf.append(c)
+            j = i + 1
+            while j < n:
+                buf.append(text[j])
+                if text[j] == "'":
+                    j += 1
+                    break
+                j += 1
+            i = j
+            continue
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        if c == "," and depth == 0:
+            args.append("".join(buf).strip())
+            buf = []
+            i += 1
+            continue
+        buf.append(c)
+        i += 1
+    tail = "".join(buf).strip()
+    if tail:
+        args.append(tail)
+    return args
+
+
+def _rewrite_div0_calls(
+    text: str,
+    owning_table_dax: str | None,
+    column_owner: dict[str, str],
+    metric_owner: dict[str, str],
+    notes: list[str],
+    local_columns: set[str] | None = None,
+) -> str:
+    """Rewrite DIV0(a, b) → DIVIDE(a, b) using paren-balanced matching."""
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        m = _RE_DIV0_HEAD.search(text, i)
+        if not m:
+            out.append(text[i:])
+            break
+        out.append(text[i:m.start()])
+        depth = 1
+        j = m.end()
+        while j < n and depth > 0:
+            if text[j] == "'":
+                k = j + 1
+                while k < n and text[k] != "'":
+                    k += 1
+                j = k + 1
+                continue
+            if text[j] == "(":
+                depth += 1
+            elif text[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        if depth != 0:
+            out.append(text[m.start():])
+            break
+        inner = text[m.end():j]
+        args = _split_args_top_level(inner)
+        if len(args) == 2:
+            num = _rewrite_inner(args[0], owning_table_dax, column_owner, metric_owner, notes, local_columns)
+            den = _rewrite_inner(args[1], owning_table_dax, column_owner, metric_owner, notes, local_columns)
+            out.append(f"DIVIDE({num}, {den})")
+            notes.append("DIV0→DIVIDE")
+        else:
+            out.append(text[m.start():j + 1])
+        i = j + 1
     return "".join(out)
 
 

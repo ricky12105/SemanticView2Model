@@ -10,6 +10,12 @@ venv/
 .env
 config/mapping.yml
 
+# Local-only semantic views (not for the shared repo)
+semantic_view/P_and_C_semantic_view.sql
+
+# Local-only environment-specific mapping (contains real Fabric/Snowflake IDs)
+config/mapping.new_sf.yml
+
 # Build output
 out/
 out_*/

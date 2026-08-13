@@ -156,7 +156,7 @@ tables:
     synonyms: ["premium", "premium transactions"]
     dimensions:
       - { name: premium_txn_key,   expr: PREMIUM_TXN_KEY,   data_type: NUMBER, unique: true }
-      - { name: accounting_period, expr: ACCOUNTING_PERIOD, data_type: VARCHAR, synonyms: ["accounting month"] }
+      - { name: premium_accounting_period, expr: ACCOUNTING_PERIOD, data_type: VARCHAR, synonyms: ["premium accounting month"] }
     facts:
       - { name: written_premium,   expr: WRITTEN_PREMIUM,   data_type: NUMBER }
       - { name: earned_premium,    expr: EARNED_PREMIUM,    data_type: NUMBER }
@@ -218,7 +218,7 @@ tables:
     primary_key: [LOSS_RESERVE_KEY]
     dimensions:
       - { name: loss_reserve_key,  expr: LOSS_RESERVE_KEY,  data_type: NUMBER, unique: true }
-      - { name: accounting_period, expr: ACCOUNTING_PERIOD, data_type: VARCHAR }
+      - { name: reserve_accounting_period, expr: ACCOUNTING_PERIOD, data_type: VARCHAR }
     facts:
       - { name: case_reserve_snap, expr: CASE_RESERVE, data_type: NUMBER }
       - { name: ibnr_reserve,      expr: IBNR_RESERVE, data_type: NUMBER, description: "Incurred but not reported reserve" }

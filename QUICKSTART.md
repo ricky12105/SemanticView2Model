@@ -163,7 +163,7 @@ sv2m --help
 # or: python -m translator.cli --help
 ```
 
-You should see subcommands: `parse`, `translate`, `deploy`, `roundtrip`.
+You should see subcommands: `parse`, `translate`, `deploy`, `pull`, `reverse`, `diff`, `sync`, `roundtrip`.
 
 ---
 
@@ -274,8 +274,20 @@ The semantic view DDL lives in `semantic_view/insurance_actuarial.sql`. This dec
 **Snowflake CLI (Track B):**
 ```powershell
 snow sql -f semantic_view/insurance_actuarial.sql \
-  -c demo_connection
+  -c demo_connection \
+  --enable-templating NONE
 ```
+
+> **Two gotchas with `snow sql` and this DDL:**
+> 1. Pass `--enable-templating NONE` — a `&` in a comment (`P&C`, `states &
+>    zones`) is otherwise read as a legacy template variable and fails with
+>    `'C' is undefined`.
+> 2. The view has `WITH TAG (...)`, so create the tags first, or the create
+>    fails with `Tag ... does not exist`:
+>    ```sql
+>    CREATE TAG IF NOT EXISTS INSURANCE_POC.ACTUARIAL.domain;
+>    CREATE TAG IF NOT EXISTS INSURANCE_POC.ACTUARIAL.maturity;
+>    ```
 
 ### 4.2 Verify the semantic view
 
@@ -364,6 +376,13 @@ model:
 ```
 
 ### 6.2 Fill in your workspace & lakehouse details
+
+> **No separate Lakehouse?** You can point straight at the **Mirrored Database**
+> — it already stores Delta in OneLake. Set `lakehouse_id` to the *Mirrored
+> Database item GUID*, `lakehouse_name` to its name, and (since mirrored
+> Snowflake tables land UPPER_CASE) `preserve_table_case: true`. The
+> `sql_endpoint` is only used by Direct-Lake-on-SQL, so it's optional with
+> `calc_column_strategy: dax`.
 
 **Where to find these values:**
 
@@ -821,6 +840,71 @@ sv2m bootstrap `
 7. Opens the deployed model URL in a browser
 
 **Implementation:** Combine all the above ideas into a single orchestration script or Fabric Pipeline with parameterized steps.
+
+---
+
+## 13. Round-trip back to Snowflake (drift + sync)
+
+The translator is bidirectional: once a model is in Fabric and someone edits it
+(new measure, changed DAX, renamed field), you can review the drift and push the
+changes back to Snowflake so the two platforms stay in sync.
+
+### 13.1 Get the edited model as TMDL
+
+Either pull it from Fabric (REST) or export it from a modeling tool:
+
+```powershell
+# REST pull (identity must own the workspace):
+python -m translator.cli pull `
+    --workspace-id <fabric-workspace-guid> `
+    --name InsuranceActuarial `
+    --out out_pulled
+
+# ...or export via the mcp_powerbi-model MCP (ExportToTmdlFolder) if you edited
+# the model there — it writes the same .SemanticModel/definition layout.
+```
+
+### 13.2 Review the drift report
+
+```powershell
+python -m translator.cli diff `
+    --snowflake semantic_view/insurance_actuarial.sql `
+    --fabric out_pulled/InsuranceActuarial.SemanticModel `
+    --mapping config/mapping.yml `
+    --out drift.md
+```
+
+`drift.md` shows added / removed / changed tables, columns, measures, and
+relationships. Genuine translation asymmetries (semi-additive measures, window
+functions, dropped constant helpers) appear under **Review flags** rather than
+as false drift.
+
+### 13.3 Sync the changes back to Snowflake
+
+```powershell
+python -m translator.cli sync `
+    --snowflake semantic_view/insurance_actuarial.sql `
+    --fabric out_pulled/InsuranceActuarial.SemanticModel `
+    --mapping config/mapping.yml `
+    --out sync.sql --report sync_changes.md          # dry run: writes DDL + report
+# add --execute to run it against Snowflake
+```
+
+`sync` writes a `CREATE OR REPLACE SEMANTIC VIEW` reflecting the Fabric edits.
+Measures that can't be faithfully reverse-translated (semi-additive, window
+functions) keep their **original Snowflake expression** so the DDL stays valid.
+
+**Executing the DDL:**
+- `--execute` uses env credentials via the `[snowflake]` extra
+  (`pip install "sv2m[snowflake]"`; set `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`,
+  `SNOWFLAKE_PASSWORD` or `SNOWFLAKE_TOKEN`).
+- With an OAuth `snow` connection instead, run the generated file directly:
+  ```powershell
+  snow sql -f sync.sql -c demo_connection --enable-templating NONE
+  ```
+
+Every change-producing command (`translate`, `reverse`, `sync`) and `diff` emit
+a reviewable `.md`, so the Snowflake ↔ Fabric delta is always auditable.
 
 ---
 

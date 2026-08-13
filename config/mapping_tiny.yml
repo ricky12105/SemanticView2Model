@@ -1,0 +1,45 @@
+# =====================================================================
+# Mapping configuration for Insurance_demo_tiny → Fabric semantic model
+# Based on 07_semantic_view.sql
+# =====================================================================
+
+# Snowflake source database configuration
+snowflake:
+  database: INSURANCE_DEMO_TINY
+  schema: PUBLIC
+
+# Target Fabric workspace and lakehouse
+fabric:
+  workspace_name: SemanticModelDemo
+  workspace_id: 00000000-0000-0000-0000-000000000000
+  lakehouse_name: INSURANCE_DEMO_TINY  # Mirrored database in Fabric
+  lakehouse_id: 00000000-0000-0000-0000-000000000000
+  sql_endpoint: <sql-endpoint-host>.datawarehouse.fabric.microsoft.com
+
+# Default storage mode for all tables
+default_storage_mode: directlake
+
+# Calculated column strategy: 'dax' (add as DAX calc columns) or 'spark' (add to lakehouse)
+calc_column_strategy: dax
+
+# Semantic model configuration
+model:
+  name: InsuranceDemoTiny
+  culture: en-US
+
+# Table-specific overrides (if needed)
+# Example: If you need Import mode for specific tables with calc columns
+# table_overrides:
+#   - snowflake:
+#       database: INSURANCE_DEMO_TINY
+#       schema: PUBLIC
+#       table: fact_claim
+#     storage_mode: import
+
+# Relationship notes:
+# - 10 tables total (7 dims including role-playing dim_accident_date + 3 facts)
+# - All relationships should be active (no ambiguous paths since we're using separate dim_accident_date)
+# - fact_premium → 6 dimensions (date, policy, product, geo, customer, reinsurer)
+# - fact_claim → 6 dimensions (date, accident_date, policy, product, geo, coverage)
+# - fact_financials → 2 dimensions (date, product)
+# - dim_policy → 3 dimensions (customer, product, geo) creating snowflake schema

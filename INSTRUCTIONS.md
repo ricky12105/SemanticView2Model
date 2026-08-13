@@ -11,13 +11,18 @@ model and pushing the result through Power BI Desktop and Fabric DirectLake.
 
 ```
 translator/
-  parsers/       sql_parser.py (hand-rolled), yaml_parser.py
+  parsers/       sql_parser.py (hand-rolled), yaml_parser.py, tmdl_parser.py (reverse)
   ir/            pydantic v2 models (SemanticView, LogicalTable, Metric, ...)
-  emitters/      tmdl_writer.py, dax_rewriter.py, mapping.py
-  cli.py         `python -m translator.cli translate <sql> --out <dir> --pbip`
+  emitters/      tmdl_writer.py, dax_rewriter.py, mapping.py,
+                 sv_writer.py (IR→Snowflake DDL), dax_to_sql.py (DAX→SQL, reverse)
+  diff.py        structural drift between two SemanticView IRs
+  reports/       markdown.py (drift + change reports)
+  deploy/        fabric_client.py (deploy + get_semantic_model pull),
+                 snowflake_client.py (execute DDL)
+  cli.py         translate / deploy / pull / reverse / diff / sync / roundtrip
 semantic_view/   sample SVs (step1..step5 = insurance_actuarial.sql)
 config/          mapping.yml (logical → Fabric workspace/lakehouse/schema)
-tests/           pytest (4 tests today, all must stay green)
+tests/           pytest (14 tests today, all must stay green)
 ```
 
 Iterative complexity ladder: `step1` (2 tables, 1 measure) → `step5`
@@ -64,9 +69,13 @@ FKs at it, the parser cannot invent role aliases for you** — see §4.2.
 * `LogicalTable.base_table` is the physical `DB.SCHEMA.TABLE` resolved via
   `config/mapping.yml` to a Fabric `FabricTable` (schema + table + storage
   mode).
-* Column names in IR are stored **uppercase** (the form the source SV uses).
-  TMDL emission keeps them uppercase to match `fromColumn`/`toColumn` in
-  relationships.
+* Column names in IR are stored **in the case the SV author used** (typically
+  uppercase, matching Snowflake DDL). The emitter keeps the *physical* casing
+  on the `sourceColumn:` property, but the *logical* TMDL column name is the
+  SV `DIMENSIONS` alias when one is declared (e.g. `effective_date_key AS
+  DATE_KEY` → TMDL column `effective_date_key`, `sourceColumn: DATE_KEY`).
+  Relationship emission uses `_lookup_logical_column` to bridge SV physical
+  refs back to the declared logical name — see § 4.9.
 * `primary_key` is a list of column names; the emitter auto-creates hidden
   columns for any PK not otherwise declared (see §4.3).
 
@@ -164,6 +173,28 @@ out/<Model>.pbip         (only with --pbip; references the .SemanticModel folder
 ```
 The `.platform` file's `logicalId` must be `00000000-0000-0000-0000-000000000000`
 when Power BI is expected to assign one on first save.
+
+### 4.9 Relationships must reference logical column names, not physical
+Snowflake `RELATIONSHIPS` clauses reference the *physical* PK/FK column
+(`REFERENCES effective_date(DATE_KEY)`), but when the same column is also
+declared in `DIMENSIONS` under a logical alias
+(`effective_date.effective_date_key AS DATE_KEY`), the emitter names the TMDL
+column `effective_date_key`, not `DATE_KEY`. TMDL is case-insensitive on
+column names, so single-key dim relationships often work by accident
+(`policyholder_key` vs `POLICYHOLDER_KEY`). **Role-playing date dims break
+this** — `effective_date.DATE_KEY` won't resolve because the column is
+named `effective_date_key`.
+
+Deploy fails with:
+`Property ToColumn of object "relationship policy_to_effective_date" refers to
+an object which cannot be found`.
+
+**Fix** (`_lookup_logical_column` in `tmdl_writer.py`): for each relationship
+endpoint, walk the target table's dimensions + facts looking for a bare
+identifier `expr` whose upper-cased form matches the physical column
+referenced in the SV. Return the logical `name` when found, else the physical
+name as fallback (which is what auto-emitted FK columns use). Applied to both
+`fromColumn` and `toColumn` in `_relationships_tmdl`.
 
 ---
 
@@ -270,6 +301,9 @@ Anything else should raise rather than silently mis-translate.
   `cardinality` detection when source declares it.
 * ~~**Fabric publish via REST.**~~ ✅ **DONE (§10.6)**: `translator.deploy.fabric_client`
   with `DefaultAzureCredential` + Items API.
+* ~~**Bidirectional sync + drift.**~~ ✅ **DONE (§12, v1.1)**: reverse pipeline
+  (TMDL→IR→Snowflake DDL), drift report, `pull`/`reverse`/`diff`/`sync` CLI,
+  optional Snowflake DDL execution.
 * **Calc column data-type inference.** Current heuristic (`_map_data_type` in
   `dax_rewriter.py`) guesses based on operators; consider AST-based inference
   or explicit type annotations in SV source.
@@ -367,6 +401,14 @@ case-sensitive at refresh time even though the lakehouse SQL endpoint is not.
 partition. This should be driven from `mapping.yml` (record the *physical*
 casing as it lands in OneLake, not the lowercase logical name).
 
+**Automation** (added post-`test1v2`): set `preserve_table_case: true` at the
+top level of `mapping.yml`. `MappingConfig.resolve()` then returns the source
+DDL casing verbatim instead of lower-casing. Default remains `false` so
+existing outputs (e.g. `out_step5`, which targeted `InsuranceActuarialLH`
+with lowercase tables) keep working. Combine with a `namespace_map` entry
+whose `fabric.schema` matches OneLake case (usually upper-case for Snowflake
+mirrors).
+
 ### 9.4 TMDL is indentation-sensitive — tabs only, exactly one level
 A measure line written with no leading tab parses cleanly visually but the
 TMDL importer errors with:
@@ -437,6 +479,55 @@ After SQL fixture grows (e.g. splitting one `dim_date` into four role
 tables), `tests/test_roundtrip.py` hard-coded counts (`assert len(v.tables) == 10`)
 go stale. Either regenerate the YAML fixture from the SQL, or move counts
 into per-step fixtures so old steps stay green.
+
+### 9.12 MirroredDatabase as the Direct Lake source (`InsuranceActuarial` run, Jul 2026)
+A MirroredDatabase item is itself a valid Direct Lake source — there is no
+requirement to layer an owned Lakehouse with shortcuts on top of it. The
+OneLake path
+`https://onelake.dfs.fabric.microsoft.com/{workspace}/{mirroredDbId}/Tables/{SCHEMA}/{TABLE}`
+resolves to the same Delta files the Lakehouse shortcut would, so the
+`AzureStorage.DataLake` M expression works unchanged.
+
+Worked example (`config/mapping.insurance_poc.yml`):
+```yaml
+fabric:
+  workspace_id: "00000000-0000-0000-0000-000000000000"    # SemanticModelDemo
+  lakehouse_id: "00000000-0000-0000-0000-000000000000"    # INSURANCE_POC MirroredDatabase
+  lakehouse_name: "INSURANCE_POC"
+  sql_endpoint: "...datawarehouse.fabric.microsoft.com"    # from mirroredDatabases API
+preserve_table_case: true
+namespace_map:
+  - snowflake: { database: INSURANCE_POC, schema: ACTUARIAL }
+    fabric:    { schema: ACTUARIAL }
+table_overrides:
+  - snowflake: { database: INSURANCE_POC, schema: ACTUARIAL, table: dim_policyholder }
+    storage_mode: import   # age_years calc col
+  - snowflake: { database: INSURANCE_POC, schema: ACTUARIAL, table: fact_policy }
+    storage_mode: import   # is_active FILTER dim
+  - snowflake: { database: INSURANCE_POC, schema: ACTUARIAL, table: fact_claim }
+    storage_mode: import   # is_open_claim / is_cat_claim FILTER dims
+```
+
+Discovery cheat sheet (all `az rest --resource https://api.fabric.microsoft.com`):
+* `GET /v1/workspaces` — find the workspace GUID by `displayName`.
+* `GET /v1/workspaces/{id}/items?type=MirroredDatabase` — list mirrored DBs.
+* `GET /v1/workspaces/{id}/mirroredDatabases/{id}` — returns
+  `properties.sqlEndpointProperties.connectionString` (the `sql_endpoint`
+  value) and `properties.defaultSchema`.
+* Schema/table discovery via the OneLake table API
+  (`mcp_fabric_mcp_se_onelake_list_table_namespaces` /
+  `mcp_fabric_mcp_se_onelake_list_tables`) confirms the exact casing to feed
+  `namespace_map` / `preserve_table_case`.
+
+Tradeoffs vs. the Lakehouse-shortcut pattern (§9.9):
+* **Pro**: one less item to provision and manage; no shortcut refresh lag.
+* **Pro**: the mirrored DB's SQL analytics endpoint is available directly
+  for Import-mode partitions.
+* **Con**: still read-only — `calc_column_strategy: materialize` remains
+  blocked. Use `dax` + per-table Import overrides (as above).
+* **Con**: no place to stage `dbo`-schema materialized tables. If you need
+  materialized calc cols, layer a Lakehouse on top with shortcuts and
+  write derived tables into its writable schema.
 
 ---
 
@@ -666,3 +757,74 @@ elif materialise and d.name.isupper():
    refresh scheduling requires Premium.
 6. **Keep track of CL upgrades** — when DL/OL becomes GA, revisit the strategy
    and potentially migrate back to full Direct Lake with in-model calc columns.
+
+---
+
+## 12. Reverse pipeline (Fabric SM → Snowflake) — v1.1
+
+The translator is bidirectional. The reverse path reconstructs a `SemanticView`
+IR from a Fabric semantic model and syncs edits back to Snowflake, with a
+reviewable Markdown drift report so the two platforms never silently diverge.
+
+Pipeline: `.SemanticModel TMDL` → `tmdl_parser` → `SemanticView` IR →
+`sv_writer` → `CREATE OR REPLACE SEMANTIC VIEW` DDL → (optional) `snowflake_client`.
+DAX expressions are rewritten to SQL by `dax_to_sql` (mirror of `dax_rewriter`).
+
+CLI: `pull` (REST getDefinition), `reverse` (TMDL→DDL), `diff` (drift `.md`),
+`sync` (SM→Snowflake DDL, `--execute` to run it). `translate` also writes a
+`<model>.changes.md`.
+
+### 12.1 `tmdl_parser` accepts both folder layouts
+PBIP pull gives `definition/tables/*.tmdl`; a Tabular-Editor / modeling-MCP
+`ExportToTmdlFolder` gives a **flat** `definition/*.tmdl`. The parser globs both
+and skips non-table files (model/database/expressions/relationships/culture)
+because they parse to `None`.
+
+### 12.2 Column & measure classification on the way back
+* `column X` with `sourceColumn:` → `Fact` when numeric, else `Dimension`
+  (`expr` = the physical `sourceColumn`).
+* Calc `column X = <DAX>` → `Dimension`, or `Fact` (PRIVATE) when `isHidden`.
+* `measure X = <DAX>` → `Metric`; `annotation Synonyms` → synonyms; `isHidden`
+  → PRIVATE. `_Measures` holding table → view-level metrics.
+* Primary keys are inferred from relationship `toColumn` targets (TMDL has no PK).
+
+### 12.3 DAX→SQL precedence: wrap compound numerators
+`DIVIDE(a - b, c)` must reverse to `(a - b) / NULLIF(c, 0)`. Without the parens,
+`a - b / NULLIF(c, 0)` binds the division first. `dax_to_sql._has_top_level_binop`
+wraps the numerator only when it has a top-level `+ - * /`.
+
+### 12.4 Re-qualify cross-metric references (Snowflake requires it)
+Forward turns `fact_claim.claim_count` into DAX `[claim_count]`; the reverse
+yields bare `claim_count`, which Snowflake rejects (`invalid identifier`).
+`sv_writer._qualify_metric_refs` prefixes bare metric names with their owning
+table (`fact_claim.claim_count`) using the table-scoped metric map.
+
+### 12.5 `sync` preserves un-round-trippable measures from source
+Semi-additive `LASTNONBLANK`/`FIRSTNONBLANK` wrappers reverse to a
+`/* review: ... */` placeholder, and window-function metrics reverse to the
+*physical* date column (`txn_date.DATE_VAL`) which is invalid in a Snowflake
+metric expression (needs the logical dim `txn_date.txn_date`). Both are invalid
+SQL, so `_cmd_sync` replaces those measure expressions with the **original
+Snowflake expression** (matched by name) so the emitted DDL stays executable.
+The drift report still surfaces them under **Review flags**.
+
+### 12.6 Snowflake CLI execution gotchas
+* `snow sql` needs `--enable-templating NONE` — a `&` in a comment (`P&C`,
+  `states & zones`) is parsed as a legacy template variable (`'C' is undefined`).
+* `WITH TAG (...)` requires the tags to exist: `CREATE TAG IF NOT EXISTS` first.
+* `sv2m sync --execute` uses `snowflake_client` (env creds: `SNOWFLAKE_ACCOUNT`,
+  `SNOWFLAKE_USER`, `SNOWFLAKE_PASSWORD`/`SNOWFLAKE_TOKEN`). With an OAuth
+  `snow` connection instead, run the generated `sync.sql` via `snow sql -f`.
+
+### 12.7 Deploy identity mismatch
+`sv2m deploy` (REST + `DefaultAzureCredential`) 404s when the `az`/VS Code
+identity isn't the Fabric workspace owner. Route through the `mcp_powerbi-model`
+`ImportFromTmdlFolder` → `DeployToFabric` path, which uses your Fabric identity.
+
+### 12.8 Drift diff normalization
+`diff.py` compares normalized projections: whitespace-collapsed, lower-cased,
+and it strips `<table>.` qualifiers on metric refs and resolves relationship
+columns to their physical source column (so role-played `DATE_KEY` ↔
+`effective_date_key` don't read as drift). A freshly-translated model shows
+drift only for genuine asymmetries (semi-additive, window fn, dropped constant
+helpers).

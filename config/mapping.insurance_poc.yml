@@ -1,0 +1,55 @@
+# ============================================================================
+# File:    config/mapping.insurance_poc.yml
+# Purpose: Resolve Snowflake INSURANCE_POC.ACTUARIAL references to the
+#          INSURANCE_POC mirrored database in the SemanticModelDemo workspace.
+# Usage:   sv2m translate semantic_view/insurance_actuarial.sql \
+#            --mapping config/mapping.insurance_poc.yml \
+#            --out out_insurance_poc --pbip
+# ============================================================================
+
+# Fabric workspace + mirrored-database "lakehouse" hosting the mirrored data.
+# (Mirrored databases expose their Delta tables via OneLake + a SQL analytics
+#  endpoint, which is what Direct Lake / Import both need.)
+fabric:
+  workspace_id: "00000000-0000-0000-0000-000000000000"   # SemanticModelDemo (replace)
+  workspace_name: "SemanticModelDemo"
+  lakehouse_id: "00000000-0000-0000-0000-000000000000"   # INSURANCE_POC MirroredDatabase (replace)
+  lakehouse_name: "INSURANCE_POC"
+  sql_endpoint: "<sql-endpoint-host>.datawarehouse.fabric.microsoft.com"
+
+# Storage mode for generated tables: "directlake" (default) | "import" | "directquery"
+default_storage_mode: directlake
+
+# Calc-column strategy: mirrored-DB tables are read-only, so the only options
+# that work are "dax" (in-model calc columns; forces Import for those tables)
+# or per-table Import overrides below.
+calc_column_strategy: dax
+
+# Snowflake-mirrored databases land tables in OneLake as UPPER_CASE. Direct
+# Lake requires an exact case match on `entityName`, so we tell the emitter to
+# preserve the DDL casing (uppercase) instead of forcing lower-case.
+preserve_table_case: true
+
+# Snowflake database/schema → Fabric mirrored namespace.
+# The mirror lands Snowflake's ACTUARIAL schema under the same name (upper-case)
+# inside the INSURANCE_POC mirrored database.
+namespace_map:
+  - snowflake: { database: INSURANCE_POC, schema: ACTUARIAL }
+    fabric:    { schema: ACTUARIAL }
+
+# Per-table overrides. Tables that carry DAX calc columns or filter-labeled
+# dimensions need Import mode (mirrored shortcuts are read-only, so we cannot
+# materialize the physical columns). See INSTRUCTIONS.md § 10.
+table_overrides:
+  - snowflake: { database: INSURANCE_POC, schema: ACTUARIAL, table: dim_policyholder }
+    storage_mode: import      # has age_years calc column
+  - snowflake: { database: INSURANCE_POC, schema: ACTUARIAL, table: fact_policy }
+    storage_mode: import      # has is_active FILTER dim
+  - snowflake: { database: INSURANCE_POC, schema: ACTUARIAL, table: fact_claim }
+    storage_mode: import      # has is_open_claim / is_cat_claim FILTER dims
+
+# Default model-level options
+model:
+  name: "InsuranceActuarial"
+  culture: "en-US"
+  compatibility_level: 1604

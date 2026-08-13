@@ -18,6 +18,7 @@ POC output structure (matches what Power BI Desktop emits for PBIP projects):
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -228,7 +229,7 @@ def _doc_lines(description: str | None, indent: str) -> list[str]:
     return [f"{indent}/// {line}" for line in description.splitlines() or [description]]
 
 
-def _column_block(name: str, source: str, data_type: str, description: str | None, hidden: bool) -> str:
+def _column_block(name: str, source: str, data_type: str, description: str | None, hidden: bool, synonyms: list[str] | None = None) -> str:
     lines = _doc_lines(description, "\t")
     lines.append(f"\tcolumn {name}")
     lines.append(f"\t\tdataType: {data_type}")
@@ -236,10 +237,13 @@ def _column_block(name: str, source: str, data_type: str, description: str | Non
         lines.append("\t\tisHidden")
     lines.append(f"\t\tsourceColumn: {source}")
     lines.append(f"\t\tsummarizeBy: none")
+    if synonyms:
+        syn = ", ".join(f'"{_escape(s)}"' for s in synonyms)
+        lines.append(f"\t\tannotation Synonyms = {syn}")
     return "\n".join(lines) + "\n"
 
 
-def _calc_column_block(name: str, dax_expr: str, data_type: str, description: str | None, hidden: bool) -> str:
+def _calc_column_block(name: str, dax_expr: str, data_type: str, description: str | None, hidden: bool, synonyms: list[str] | None = None) -> str:
     """Emit a TMDL DAX calculated column (Direct Lake on OneLake supports these)."""
     flat = " ".join(dax_expr.split())
     lines = _doc_lines(description, "\t")
@@ -248,6 +252,9 @@ def _calc_column_block(name: str, dax_expr: str, data_type: str, description: st
     if hidden:
         lines.append("\t\tisHidden")
     lines.append(f"\t\tsummarizeBy: none")
+    if synonyms:
+        syn = ", ".join(f'"{_escape(s)}"' for s in synonyms)
+        lines.append(f"\t\tannotation Synonyms = {syn}")
     return "\n".join(lines) + "\n"
 
 
@@ -303,6 +310,9 @@ def _table_tmdl(t: LogicalTable, ctx: _EmitContext) -> str:
     out: list[str] = []
     out.extend(_doc_lines(t.description, ""))
     out.append(f"table {t.name}")
+    if t.synonyms:
+        syn = ", ".join(f'"{_escape(s)}"' for s in t.synonyms)
+        out.append(f"\tannotation Synonyms = {syn}")
     out.append("")
 
     # Columns: from dims + time_dims + facts (skip metric defs)
@@ -310,13 +320,15 @@ def _table_tmdl(t: LogicalTable, ctx: _EmitContext) -> str:
     local_cols_for_calc = ctx.table_columns.get(t.name, set())
     materialise = ctx.config.calc_column_strategy == "materialize"
     for d in list(t.dimensions) + list(t.time_dimensions):
-        if d.expr.replace("_", "").isalnum() and d.expr.isupper():
-            if d.expr in seen:
+        expr_stripped = d.expr.strip()
+        is_bare_ident = bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expr_stripped))
+        if is_bare_ident:
+            if expr_stripped in seen:
                 continue
-            seen.add(d.expr)
+            seen.add(expr_stripped)
             # Use the source name as the TMDL column name so it matches
             # relationships (`fromColumn`/`toColumn`) and rewritten DAX refs.
-            out.append(_column_block(d.expr, d.expr, _map_data_type(d.data_type), d.description, hidden=False))
+            out.append(_column_block(d.name, expr_stripped, _map_data_type(d.data_type), d.description, hidden=False, synonyms=d.synonyms))
         else:
             # Calculated dimension. Skip pure constants (e.g. `AS 1` helpers
             # used in Snowflake for COUNT DISTINCT patterns).
@@ -329,21 +341,23 @@ def _table_tmdl(t: LogicalTable, ctx: _EmitContext) -> str:
             dtype = _map_data_type(d.data_type) if d.data_type else calc.data_type
             if materialise:
                 # Pre-computed in the lakehouse — bind as a plain physical column.
-                out.append(_column_block(d.name, d.name, dtype, d.description, hidden=False))
+                out.append(_column_block(d.name, d.name, dtype, d.description, hidden=False, synonyms=d.synonyms))
             else:
-                out.append(_calc_column_block(d.name, calc.expression, dtype, d.description, hidden=False))
+                out.append(_calc_column_block(d.name, calc.expression, dtype, d.description, hidden=False, synonyms=d.synonyms))
 
     for f in t.facts:
         from translator.ir import AccessModifier  # local import to avoid cycle warnings
         hidden = f.access_modifier == AccessModifier.PRIVATE
-        if f.expr.replace("_", "").isalnum() and f.expr.isupper():
-            if f.expr in seen:
+        expr_stripped = f.expr.strip()
+        is_bare_ident = bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expr_stripped))
+        if is_bare_ident:
+            if expr_stripped in seen:
                 continue
-            seen.add(f.expr)
+            seen.add(expr_stripped)
             # Facts are numeric by default (they're aggregated); fall back to
             # double when source type is unknown rather than string.
             fact_dtype = _map_data_type(f.data_type) if f.data_type else "double"
-            out.append(_column_block(f.expr, f.expr, fact_dtype, f.description, hidden=hidden))
+            out.append(_column_block(f.name, expr_stripped, fact_dtype, f.description, hidden=hidden, synonyms=f.synonyms))
         else:
             # Calculated fact.
             if f.name in seen:
@@ -354,9 +368,9 @@ def _table_tmdl(t: LogicalTable, ctx: _EmitContext) -> str:
                 continue
             dtype = _map_data_type(f.data_type) if f.data_type else calc.data_type
             if materialise:
-                out.append(_column_block(f.name, f.name, dtype, f.description, hidden=hidden))
+                out.append(_column_block(f.name, f.name, dtype, f.description, hidden=hidden, synonyms=f.synonyms))
             else:
-                out.append(_calc_column_block(f.name, calc.expression, dtype, f.description, hidden=hidden))
+                out.append(_calc_column_block(f.name, calc.expression, dtype, f.description, hidden=hidden, synonyms=f.synonyms))
 
     # Auto-emit primary-key columns (needed for measures like COUNT(PK)
     # and for relationships that reference the PK on the other side).
@@ -425,6 +439,34 @@ def _holding_table_tmdl(t_name: str, measures: list[Metric], ctx: _EmitContext) 
     return "\n".join(out) + "\n"
 
 
+def _lookup_logical_column(view: SemanticView, table_name: str, physical_name: str) -> str:
+    """Map a physical column reference (as written in an SV RELATIONSHIPS clause)
+    to the logical column name that the TMDL table actually declares.
+
+    In `TABLES ... PRIMARY KEY (X)` / `RELATIONSHIPS ... REFERENCES t(X)` the SV
+    uses the *physical* column name. But when the same column is also declared
+    in `DIMENSIONS` as `t.logical_name AS X`, the emitter names the TMDL
+    column ``logical_name`` (with ``sourceColumn: X``). TMDL is case-insensitive
+    on column names, so this only matters when the two names differ beyond
+    casing — most notably for role-playing date dimensions where the same
+    physical `DATE_KEY` is exposed as `effective_date_key`, `txn_date_key`,
+    etc. per role.
+    """
+    t = view.get_table(table_name)
+    if t is None:
+        return physical_name
+    target = physical_name.upper()
+    for d in list(t.dimensions) + list(t.time_dimensions):
+        expr = d.expr.strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expr) and expr.upper() == target:
+            return d.name
+    for f in t.facts:
+        expr = f.expr.strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expr) and expr.upper() == target:
+            return f.name
+    return physical_name
+
+
 def _relationships_tmdl(view: SemanticView) -> str:
     """Emit relationships, marking those that would create ambiguous paths as
     `isActive: false` so Power BI can load the model.
@@ -461,10 +503,12 @@ def _relationships_tmdl(view: SemanticView) -> str:
         for i, rc in enumerate(r.relationship_columns):
             rid = r.name if len(r.relationship_columns) == 1 else f"{r.name}_{i}"
             is_active = union(r.left_table, r.right_table)
+            left_col = _lookup_logical_column(view, r.left_table, rc.left_column)
+            right_col = _lookup_logical_column(view, r.right_table, rc.right_column)
             block = (
                 f"relationship {rid}\n"
-                f"\tfromColumn: {r.left_table}.{rc.left_column}\n"
-                f"\ttoColumn: {r.right_table}.{rc.right_column}\n"
+                f"\tfromColumn: {r.left_table}.{left_col}\n"
+                f"\ttoColumn: {r.right_table}.{right_col}\n"
             )
             if not is_active:
                 block += "\tisActive: false\n"

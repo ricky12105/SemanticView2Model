@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 fabric = ["semantic-link-labs>=0.7"]
+snowflake = ["snowflake-connector-python>=3.7"]
 dev = ["pytest>=8.0"]
 
 [project.scripts]

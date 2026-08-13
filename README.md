@@ -158,12 +158,17 @@ SemanticView2Model/
   (`expressions.tmdl`), pointing at the Lakehouse SQL endpoint.
 - `expressionSource: DatabaseQuery`, `schemaName: <fabric_schema>`,
   `entityName: <fabric_table>` — **case must match OneLake exactly**
-  (Snowflake-mirrored tables are upper-case).
+  (Snowflake-mirrored tables are upper-case). Set
+  `preserve_table_case: true` in `mapping.yml` so the emitter keeps the
+  DDL casing instead of forcing lower-case.
 - FK columns auto-emitted as `isHidden`; fact numeric columns default to
   `double`.
 - Relationships: union-find pass marks cycle-closing edges as
   `isActive: false` to avoid PBI's
-  `PFE_XL_USERELATIONSHIP_AMBIGUOUS_PATH`.
+  `PFE_XL_USERELATIONSHIP_AMBIGUOUS_PATH`. Role-play dims where the
+  logical column name (e.g. `effective_date_key`) differs from the
+  physical (`DATE_KEY`) are auto-resolved by
+  `_lookup_logical_column` — see [INSTRUCTIONS § 4.9](INSTRUCTIONS.md).
 - Compatibility level `1604` (Direct Lake classic).
 
 ### DAX rewriter (`translator/emitters/dax_rewriter.py`)
@@ -188,6 +193,9 @@ Measure references use bare bracket form `[measure]`, table columns use
 
 ```yaml
 fabric:
+  # `lakehouse_id` may point at either an owned Lakehouse OR a
+  # MirroredDatabase item — both expose their Delta tables at
+  # `https://onelake.dfs.fabric.microsoft.com/{workspace}/{item}/Tables`.
   workspace_id:    "<guid>"
   workspace_name:  "SemanticModelDemo"
   lakehouse_id:    "<guid>"
@@ -195,6 +203,10 @@ fabric:
   sql_endpoint:    "<dwh-sql-endpoint-fqdn>"
 
 default_storage_mode: directlake   # directlake | import | directquery
+
+# Snowflake-mirrored tables land in OneLake UPPER_CASE. Direct Lake requires
+# exact-case `entityName`, so preserve the DDL casing instead of lower-casing.
+preserve_table_case: true
 
 calc_column_strategy: materialize  # materialize | dax (see INSTRUCTIONS § 10.7)
                                    # materialize = PySpark script adds physical columns
@@ -248,12 +260,27 @@ pip install -e .
 @semantic_view/insurance_actuarial.sql
 ```
 
-### 3. Mirror the Snowflake schema into a Fabric Lakehouse
+> **Running the DDL with the `snow` CLI?** Pass `--enable-templating NONE` —
+> otherwise a `&` in a comment (e.g. `P&C`) is parsed as a template variable and
+> the command fails with `'C' is undefined`. Also create any tags the view
+> references (`CREATE TAG IF NOT EXISTS ...`) *before* the `CREATE SEMANTIC
+> VIEW`, since `WITH TAG (...)` requires them to exist.
 
-Use Fabric's UI: **New → Mirrored database → Snowflake**. The mirrored
-tables land in your Lakehouse as **read-only shortcuts** under
-`Tables/<SCHEMA>/<TABLE>`. Note the exact case — you will need it in
-`mapping.yml`.
+### 3. Mirror the Snowflake schema into a Fabric MirroredDatabase
+
+Use Fabric's UI: **New → Mirrored database → Snowflake**. Two consumption
+patterns are supported:
+
+- **A. Direct** — point `mapping.yml`'s `lakehouse_id` at the MirroredDatabase
+  item itself. Its `Tables/<SCHEMA>/<TABLE>` path is the Delta root.
+- **B. Shortcut** — create a Lakehouse (e.g. `InsuranceActuarialLH`) and
+  add OneLake shortcuts pointing at the MirroredDatabase tables. Point
+  `lakehouse_id` at the Lakehouse.
+
+Either way tables are **read-only** — use `calc_column_strategy: dax` with
+per-table Import overrides for any table carrying calculated columns.
+Note the exact case as it appears in OneLake — you will need it (or
+`preserve_table_case: true`) in `mapping.yml`.
 
 ### 4. Configure `config/mapping.yml`
 
@@ -333,25 +360,71 @@ $env:AZURE_TENANT_ID     = "<tenant-id>"
 $env:AZURE_CLIENT_SECRET = "<secret>"
 ```
 
+> **`404 Not Found` on deploy?** The `DefaultAzureCredential` identity (your
+> `az login` / VS Code account) must be the one with access to the target
+> workspace — otherwise the items endpoint returns 404. If your Fabric identity
+> differs, use the MCP `ImportFromTmdlFolder` → `DeployToFabric` path above,
+> which authenticates as your Fabric user.
+
 ---
 
 ## CLI reference
 
 ```
 sv2m parse      <input>
-sv2m translate  <input> --mapping <yml> --out <dir> [--pbip]
+sv2m translate  <input> --mapping <yml> --out <dir> [--pbip] [--no-report]
 sv2m deploy     <model_dir> --workspace-id <guid> --name <display-name>
+sv2m pull       --workspace-id <guid> (--name <display-name> | --item-id <guid>) --out <dir>
+sv2m reverse    <model_dir> --mapping <yml> --out <view.sql> [--source <sv>] [--report <md>]
+sv2m diff       --snowflake <sv> --fabric <model_dir> --mapping <yml> --out <drift.md> [--fail-on-drift]
+sv2m sync       --snowflake <sv> --fabric <model_dir> --mapping <yml> --out <ddl.sql> [--report <md>] [--execute]
 sv2m roundtrip  --yaml <file.yaml> --sql <file.sql>
 ```
 
-`<input>` may be `.sql` (Snowflake DDL) or `.yaml` (Snowflake YAML form).
+`<input>` / `<sv>` may be `.sql` (Snowflake DDL) or `.yaml` (Snowflake YAML form).
 
 | Subcommand | Purpose |
 |---|---|
 | `parse` | Parse and print the IR as JSON. Useful for inspecting what the parser saw. |
-| `translate` | Parse + emit a `.SemanticModel` (and optionally a `.pbip` wrapper). |
+| `translate` | Parse + emit a `.SemanticModel` (and optionally a `.pbip` wrapper). Writes a `<model>.changes.md` review report unless `--no-report`. |
 | `deploy` | Push an emitted model folder to a Fabric workspace via REST. |
+| `pull` | Pull a Fabric SemanticModel's TMDL definition to a local folder (reverse of `deploy`). |
+| `reverse` | Reconstruct Snowflake `CREATE OR REPLACE SEMANTIC VIEW` DDL from a Fabric `.SemanticModel`. |
+| `diff` | Compare a Snowflake semantic view against a Fabric model and write a reviewable **drift report** (`.md`). |
+| `sync` | Sync Fabric model edits back to Snowflake: writes DDL + a change report, and (with `--execute`) runs it against Snowflake. |
 | `roundtrip` | Parse a YAML and SQL of the same view and report a structural summary diff. |
+
+### Keeping Snowflake and Fabric in sync (bidirectional)
+
+The translator is bidirectional. Beyond the forward path (Snowflake → Fabric),
+you can bring Fabric edits back and continuously check for drift:
+
+```bash
+# 1. Pull the current (possibly edited) model from Fabric
+sv2m pull --workspace-id <guid> --name InsuranceActuarial --out out_pulled
+
+# 2. Review drift vs the Snowflake source — produces a Markdown report
+sv2m diff --snowflake semantic_view/insurance_actuarial.sql \
+          --fabric out_pulled/InsuranceActuarial.SemanticModel \
+          --mapping config/mapping.insurance_poc.yml --out drift.md
+
+# 3. Sync the Fabric changes back to Snowflake (dry run writes DDL + change report)
+sv2m sync --snowflake semantic_view/insurance_actuarial.sql \
+          --fabric out_pulled/InsuranceActuarial.SemanticModel \
+          --mapping config/mapping.insurance_poc.yml \
+          --out sync.sql --report sync_changes.md
+# add --execute to run the DDL against Snowflake (needs sv2m[snowflake] + SNOWFLAKE_* env vars)
+```
+
+Every change-producing command (`translate`, `reverse`, `sync`) and the `diff`
+command emit a reviewable `.md` so the Snowflake ↔ Fabric delta is always
+auditable. Executing DDL against Snowflake requires the optional extra:
+
+```bash
+pip install "sv2m[snowflake]"
+# env: SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PASSWORD (or SNOWFLAKE_TOKEN),
+#      optional SNOWFLAKE_ROLE / SNOWFLAKE_WAREHOUSE / SNOWFLAKE_DATABASE / SNOWFLAKE_SCHEMA
+```
 
 ---
 
@@ -372,7 +445,10 @@ These are the sharp edges. Full details in [INSTRUCTIONS.md](INSTRUCTIONS.md).
    tables with calculated columns.
 3. **Schema/entity casing is case-sensitive at refresh.** Even though the
    SQL endpoint accepts any case, Direct Lake binding does not. Set
-   `schemaName` and `entityName` to the exact OneLake casing.
+   `schemaName` and `entityName` to the exact OneLake casing. For
+   Snowflake-mirrored databases (upper-case) set
+   `preserve_table_case: true` in `mapping.yml` and use `namespace_map`
+   entries whose `fabric.schema` matches the OneLake case.
 4. **Window-function metrics auto-translate with caveats.** `SUM(SUM(x))
    OVER (...)` translates to `CALCULATE([inner_measure],
    DATESINPERIOD(...))`, but requires the translator to resolve Semantic
