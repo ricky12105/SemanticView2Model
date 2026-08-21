@@ -1,6 +1,6 @@
 # SemanticView2Model (`sv2m`)
 
-**Translate a Snowflake `CREATE SEMANTIC VIEW` (or its YAML equivalent) into a
+**Translate a Snowflake `SEMANTIC VIEW` (or its YAML equivalent) into a
 Microsoft Fabric Power BI semantic model (TMDL / `.pbip`), running in
 **Direct Lake** mode over a Fabric Lakehouse that mirrors the underlying
 Snowflake tables.**
